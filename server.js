@@ -16,9 +16,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
-// DB-Pfad via Env konfigurierbar → Railway Volume unter /data mounten
-const DB_PATH = process.env.DATABASE_PATH || './grouppool.db';
-const db = new sqlite3.Database(DB_PATH);
+const fs = require('fs');
+const DB_PATH = './grouppool.db';
+console.log(`[DB] Opening database at ${DB_PATH}`);
+
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) {
+    console.error('[DB] Failed to open database:', err.message);
+  } else {
+    console.log('[DB] Connected successfully');
+  }
+});
 
 db.serialize(() => {
   db.run(`
@@ -32,7 +40,7 @@ db.serialize(() => {
       status      TEXT NOT NULL DEFAULT 'open',
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )
-  `);
+  `, (err) => { if (err) console.error('[DB] pools table error:', err.message); });
   db.run(`
     CREATE TABLE IF NOT EXISTS contributions (
       id              TEXT PRIMARY KEY,
@@ -44,7 +52,7 @@ db.serialize(() => {
       created_at      TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (pool_id) REFERENCES pools(id)
     )
-  `);
+  `, (err) => { if (err) console.error('[DB] contributions table error:', err.message); });
 });
 
 function dbGet(sql, params) {
@@ -121,7 +129,7 @@ async function sendStreamlabsAlert(message) {
 
 // ── Twitch ────────────────────────────────────────────────────────────────────
 
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || '0oq30keqho53qvrh6tdlbi6m0fp77q';
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || '6jmi6nxcfqg5fgijmx6d66t3di6amo';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
 let twitchTokenCache = null;
 
