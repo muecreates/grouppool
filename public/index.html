@@ -565,10 +565,10 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function fmt(n) { return Number(n).toLocaleString('de-DE'); }
 function fmtEur(n) { return `€${Number(n).toFixed(2).replace('.',',')}` }
 function calcFees(eur) {
-  const total    = Math.ceil(((eur + 0.25) / (1 - 0.065)) * 100) / 100;
-  const service  = Math.round(eur * 0.05 * 100) / 100;
-  const payment  = Math.round((total - eur - service) * 100) / 100;
-  return { total, service, payment };
+  const total   = Math.round(((eur + 0.25) / (1 - 0.065)) * 100) / 100;
+  const service = Math.round(eur * 0.05 * 100) / 100;
+  const stripe  = Math.round((eur * 0.015 + 0.25) * 100) / 100;
+  return { total, service, stripe };
 }
 function timeAgo(dateStr) {
   const ms = Date.now() - new Date(dateStr + 'Z').getTime();
@@ -975,30 +975,37 @@ async function renderDetail(id) {
               <div class="fee-box" id="fee-box">
                 <div class="fee-row"><span class="fee-lbl">Dein Beitrag</span><span class="fee-val" id="f-contrib">—</span></div>
                 <div class="fee-row"><span class="fee-lbl">Service Fee (5%)</span><span class="fee-val" id="f-service">—</span></div>
-                <div class="fee-row"><span class="fee-lbl">Zahlungsgebühr</span><span class="fee-val" id="f-payment">—</span></div>
+                <div class="fee-row"><span class="fee-lbl">Stripe Gebühr (1,5% + 0,25€)</span><span class="fee-val" id="f-stripe">—</span></div>
                 <div class="fee-sep"></div>
                 <div class="fee-row fee-total"><span class="fee-lbl">Du zahlst</span><span class="fee-val" id="f-total">—</span></div>
-                <div class="fee-note">Streamer erhält den vollen Betrag. Ziel: ${fmtEur(pool.ziel_betrag)}.</div>
+                <div class="fee-note">@${esc(pool.streamer)} erhält <strong style="color:var(--g1)" id="f-streamer-gets">—</strong> — 100% des Zielbetrags.</div>
               </div>
               <button type="submit" class="btn btn-primary btn-full" id="join-btn">Zur Kasse → Stripe</button>
             </form>
           </div>`:`
           <div class="detail-sep"></div>
-          <div style="text-align:center;padding:20px 0">
-            <div style="font-size:2.5rem;margin-bottom:10px">🎉</div>
-            <div style="font-weight:800;font-size:1.1rem">Ziel erreicht!</div>
-            <div style="color:var(--t2);margin-top:6px;font-size:.9rem">Die Donation wurde an @${esc(pool.streamer)} gesendet.</div>
+          <div id="goal-reached-banner" style="
+            background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(16,185,129,.15));
+            border:1px solid rgba(16,185,129,.4);border-radius:12px;padding:24px;text-align:center;
+          ">
+            <div style="font-size:2.8rem;margin-bottom:8px">🎉</div>
+            <div style="font-weight:900;font-size:1.2rem;margin-bottom:6px">Ziel erreicht!</div>
+            <div style="color:var(--t2);font-size:.9rem;margin-bottom:12px">Die Gruppen-Donation wird jetzt live an @${esc(pool.streamer)} gesendet.</div>
+            <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 16px;font-size:.85rem;color:var(--g1);font-weight:700">
+              🚀 Donation wird ausgelöst!
+            </div>
           </div>`}
           <div class="detail-sep"></div>
           <div class="section-lbl" style="margin-bottom:10px">Link teilen</div>
           <div class="share-row">
             <div class="share-url" id="share-url">${location.origin}/?pool=${pool.id}</div>
-            <button class="copy-btn" onclick="copyLink()">Kopieren</button>
+            <button class="copy-btn" id="copy-btn" onclick="copyLink()">📋 Kopieren</button>
           </div>
         </div>
       </div>`;
 
     setTimeout(()=>{ const el=document.getElementById('det-prog'); if(el) el.style.width=`${pct}%`; },60);
+    if (ziel_erreicht || pool.status==='triggered') setTimeout(launchConfetti, 300);
 
     const joinForm = document.getElementById('join-form');
     if (joinForm) {
@@ -1029,11 +1036,13 @@ function updateFee() {
   const euros = parseFloat(document.getElementById('amt-inp').value);
   const box   = document.getElementById('fee-box');
   if (!euros||isNaN(euros)||euros<=0) { box.classList.remove('show'); return; }
-  const {total,service,payment} = calcFees(euros);
-  document.getElementById('f-contrib').textContent  = fmtEur(euros);
-  document.getElementById('f-service').textContent  = fmtEur(service);
-  document.getElementById('f-payment').textContent  = fmtEur(payment);
-  document.getElementById('f-total').textContent    = fmtEur(total);
+  const {total,service,stripe} = calcFees(euros);
+  document.getElementById('f-contrib').textContent       = fmtEur(euros);
+  document.getElementById('f-service').textContent       = fmtEur(service);
+  document.getElementById('f-stripe').textContent        = fmtEur(stripe);
+  document.getElementById('f-total').textContent         = fmtEur(total);
+  const sg = document.getElementById('f-streamer-gets');
+  if (sg) sg.textContent = fmtEur(euros);
   const btn = document.getElementById('join-btn');
   if (btn) btn.textContent = `${fmtEur(total)} → Stripe bezahlen`;
   box.classList.add('show');
@@ -1045,11 +1054,46 @@ function setAmt(v) {
   event.currentTarget.classList.add('active');
 }
 function copyLink() {
-  navigator.clipboard.writeText(document.getElementById('share-url').textContent).then(()=>{
-    const b=document.querySelector('.copy-btn');
-    b.textContent='✓ Kopiert!'; b.style.color='var(--g1)'; b.style.borderColor='var(--g1)';
-    setTimeout(()=>{ b.textContent='Kopieren'; b.style.color=''; b.style.borderColor=''; },2000);
+  const url = document.getElementById('share-url')?.textContent || location.href;
+  navigator.clipboard.writeText(url).then(()=>{
+    const b=document.getElementById('copy-btn')||document.querySelector('.copy-btn');
+    if (!b) return;
+    b.textContent='✓ Link kopiert!'; b.style.color='var(--g1)'; b.style.borderColor='var(--g1)';
+    setTimeout(()=>{ b.textContent='📋 Kopieren'; b.style.color=''; b.style.borderColor=''; },2500);
   });
+}
+
+function launchConfetti() {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  canvas.width = innerWidth; canvas.height = innerHeight;
+  const colors = ['#7c3aed','#a855f7','#10b981','#f59e0b','#ec4899','#06b6d4'];
+  const pieces = Array.from({length:120}, () => ({
+    x: Math.random()*canvas.width, y: -20,
+    w: Math.random()*10+5, h: Math.random()*6+3,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    rot: Math.random()*360, drot: (Math.random()-0.5)*8,
+    vx: (Math.random()-0.5)*4, vy: Math.random()*4+2,
+    alpha: 1,
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    pieces.forEach(p => {
+      p.x+=p.vx; p.y+=p.vy; p.rot+=p.drot;
+      if (frame > 90) p.alpha = Math.max(0, p.alpha - 0.015);
+      ctx.save(); ctx.globalAlpha=p.alpha;
+      ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.color; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+      ctx.restore();
+    });
+    frame++;
+    if (frame < 150) requestAnimationFrame(draw);
+    else canvas.remove();
+  }
+  draw();
 }
 
 // ── RENDER ─────────────────────────────────────────────────────────────────────

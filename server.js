@@ -381,10 +381,10 @@ app.get('/pool/:id/success', async (req, res) => {
 // Formel stellt sicher dass der Streamer genau `amount` erhält:
 //   contributor_pays = (amount + 0.25) / (1 - 0.065)
 function calcFees(amountEuros) {
-  const totalCharge = Math.ceil(((amountEuros + 0.25) / (1 - 0.065)) * 100) / 100;
+  const totalCharge = Math.round(((amountEuros + 0.25) / (1 - 0.065)) * 100) / 100;
   const serviceFee  = Math.round(amountEuros * 0.05 * 100) / 100;
-  const paymentFee  = Math.round((totalCharge - amountEuros - serviceFee) * 100) / 100;
-  return { totalCharge, serviceFee, paymentFee };
+  const stripeFee   = Math.round((amountEuros * 0.015 + 0.25) * 100) / 100;
+  return { totalCharge, serviceFee, stripeFee };
 }
 
 // GET /api/fees?amount=<euros> → gibt Fee-Breakdown zurück (für Live-Vorschau)
@@ -409,7 +409,7 @@ app.post('/pool/:id/checkout', async (req, res) => {
   }
 
   const amountEuros   = Math.round(Number(amount)) / 100;
-  const { totalCharge, serviceFee, paymentFee } = calcFees(amountEuros);
+  const { totalCharge, serviceFee, stripeFee } = calcFees(amountEuros);
   const totalCents    = Math.round(totalCharge * 100);
   const platformCents = Math.round(serviceFee * 100);
   const contrib_id    = uid();
@@ -426,7 +426,7 @@ app.post('/pool/:id/checkout', async (req, res) => {
           currency: 'eur',
           product_data: {
             name: `GroupPool: ${pool.gruppe_name} → @${pool.streamer}`,
-            description: `Dein Beitrag: €${amountEuros.toFixed(2)} | Service: €${serviceFee.toFixed(2)} | Gebühr: €${paymentFee.toFixed(2)}`,
+            description: `Dein Beitrag: €${amountEuros.toFixed(2)} | Service: €${serviceFee.toFixed(2)} | Stripe: €${stripeFee.toFixed(2)}`,
           },
           unit_amount: totalCents,
         },
@@ -442,15 +442,15 @@ app.post('/pool/:id/checkout', async (req, res) => {
         amount_euros:    amountEuros.toString(),   // nur der echte Beitrag fürs Ziel
         total_charge:    totalCharge.toString(),
         service_fee:     serviceFee.toString(),
+      stripe_fee:      stripeFee.toString(),
       },
     };
 
-    // application_fee_amount erfordert Stripe Connect (connected account)
     if (process.env.STRIPE_CONNECTED_ACCOUNT_ID) {
       sessionParams.application_fee_amount = platformCents;
       sessionParams.transfer_data = { destination: process.env.STRIPE_CONNECTED_ACCOUNT_ID };
     } else {
-      console.log(`[Checkout] Platform fee €${serviceFee.toFixed(2)} (Connect nicht konfiguriert, manuell tracken)`);
+      console.log(`[Checkout] Platform fee €${serviceFee.toFixed(2)} | Stripe fee €${stripeFee.toFixed(2)}`);
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
@@ -467,7 +467,7 @@ app.post('/pool/:id/checkout', async (req, res) => {
       contribution_id: contrib_id,
       amount_euros:    amountEuros,
       service_fee:     serviceFee,
-      payment_fee:     paymentFee,
+      stripe_fee:      stripeFee,
       total_charge:    totalCharge,
     });
   } catch (err) {
