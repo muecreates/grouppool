@@ -633,31 +633,66 @@ function clearStreamer() {
   document.getElementById('ac-input').value = '';
 }
 function closeAcDrop() { document.getElementById('ac-drop').classList.remove('open'); }
-function openAcDrop(items) {
+
+function openAcDrop(items, fromSearch) {
   const dd = document.getElementById('ac-drop');
   if (!items.length) { dd.classList.remove('open'); return; }
-  dd.innerHTML = items.slice(0,8).map(s => `
-    <div class="ac-item" onclick="selectStreamer(liveStreamers.find(x=>x.user_login==='${esc(s.user_login)}'))">
-      ${s.profile_image_url?`<img src="${esc(s.profile_image_url)}" alt="" loading="lazy">`:''}
+  dd.innerHTML = items.slice(0,8).map(s => {
+    // Items from local cache → selectStreamer with object; from API search → pass the item directly
+    const dataAttr = JSON.stringify({user_name:s.user_name,user_login:s.user_login,profile_image_url:s.profile_image_url,game_name:s.game_name,viewer_count:s.viewer_count});
+    return `<div class="ac-item" onclick='selectStreamer(${dataAttr.replace(/'/g,"&#39;")})'>
+      ${s.profile_image_url?`<img src="${esc(s.profile_image_url)}" alt="" loading="lazy">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--s3);flex-shrink:0"></div>'}
       <div class="ac-info">
         <div class="ac-name">${esc(s.user_name)}</div>
-        <div class="ac-game">${esc(s.game_name||'')}</div>
+        <div class="ac-game">${esc(s.game_name||'Just Chatting')}</div>
       </div>
-      <div class="ac-viewers">👁 ${fmt(s.viewer_count)}</div>
-    </div>`).join('');
+      <div class="ac-viewers">${s.viewer_count ? '👁 '+fmt(s.viewer_count) : '<span style="color:var(--g1);font-size:.68rem;font-weight:700">LIVE</span>'}</div>
+    </div>`;
+  }).join('');
   dd.classList.add('open');
 }
+
+let acSearchTimer = null;
+async function searchStreamerAPI(q) {
+  const dd = document.getElementById('ac-drop');
+  dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Suche auf Twitch…</div>`;
+  dd.classList.add('open');
+  try {
+    const res = await api('GET', `/api/search-streamer?q=${encodeURIComponent(q)}`);
+    const items = res.streamers || [];
+    if (!items.length) {
+      dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Kein live Streamer gefunden</div>`;
+      document.getElementById('ac-err').classList.add('show');
+    } else {
+      document.getElementById('ac-err').classList.remove('show');
+      openAcDrop(items, true);
+    }
+  } catch {
+    dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--red)">Suche fehlgeschlagen</div>`;
+  }
+}
+
 document.getElementById('ac-input').addEventListener('input', e => {
-  const q = e.target.value.toLowerCase().trim();
+  const q = e.target.value.trim();
+  const ql = q.toLowerCase();
   document.getElementById('ac-err').classList.remove('show');
+  clearTimeout(acSearchTimer);
   if (!q) { closeAcDrop(); return; }
-  const hits = liveStreamers.filter(s => s.user_login.toLowerCase().includes(q)||s.user_name.toLowerCase().includes(q));
-  openAcDrop(hits);
-  if (q.length >= 2 && !hits.length) document.getElementById('ac-err').classList.add('show');
+
+  // 1. Instant local match
+  const hits = liveStreamers.filter(s => s.user_login.toLowerCase().includes(ql)||s.user_name.toLowerCase().includes(ql));
+  if (hits.length) { openAcDrop(hits); return; }
+
+  // 2. No local match → show loading hint, then debounce API call
+  if (q.length >= 2) {
+    document.getElementById('ac-drop').innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Suche auf Twitch…</div>`;
+    document.getElementById('ac-drop').classList.add('open');
+    acSearchTimer = setTimeout(() => searchStreamerAPI(q), 500);
+  }
 });
 document.getElementById('ac-input').addEventListener('focus', e => { if(e.target.value) e.target.dispatchEvent(new Event('input')); });
-document.getElementById('ac-clear').addEventListener('click', clearStreamer);
-document.addEventListener('click', e => { if (!e.target.closest('.ac-wrap')) closeAcDrop(); });
+document.getElementById('ac-clear').addEventListener('click', () => { clearTimeout(acSearchTimer); clearStreamer(); });
+document.addEventListener('click', e => { if (!e.target.closest('.ac-wrap')) { clearTimeout(acSearchTimer); closeAcDrop(); } });
 
 // ── CREATE FORM ────────────────────────────────────────────────────────────────
 document.getElementById('create-form').addEventListener('submit', async e => {

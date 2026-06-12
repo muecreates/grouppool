@@ -227,6 +227,42 @@ app.get('/api/categories', async (req, res) => {
   res.json({ categories });
 });
 
+// GET /api/search-streamer?q=<query> → Twitch live channel search
+app.get('/api/search-streamer', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q parameter required' });
+
+  const token = await getTwitchToken();
+  if (!token) return res.status(503).json({ error: 'Twitch token nicht verfügbar.' });
+
+  try {
+    const r = await fetch(
+      `https://api.twitch.tv/helix/search/channels?query=${encodeURIComponent(q)}&live_only=true&first=8`,
+      { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
+    );
+    const data = await r.json();
+    const channels = (data.data || []).filter(c => c.is_live).map(c => ({
+      user_name:         c.display_name,
+      user_login:        c.broadcaster_login,
+      game_name:         c.game_name,
+      viewer_count:      0,          // search endpoint doesn't return viewer_count
+      title:             c.title,
+      profile_image_url: c.thumbnail_url || '',
+    }));
+
+    // Enrich with viewer_count from live cache where available
+    const cache = liveStreamerCache.streamers;
+    channels.forEach(c => {
+      const hit = cache.find(s => s.user_login === c.user_login);
+      if (hit) { c.viewer_count = hit.viewer_count; c.profile_image_url = hit.profile_image_url || c.profile_image_url; }
+    });
+
+    res.json({ streamers: channels });
+  } catch (err) {
+    res.status(500).json({ error: 'Twitch API Fehler: ' + err.message });
+  }
+});
+
 // GET /api/pools → alle offenen Pools mit Contributor-Count
 app.get('/api/pools', async (req, res) => {
   const pools = await dbAll(`
