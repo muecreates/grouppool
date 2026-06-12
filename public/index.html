@@ -492,7 +492,7 @@
 <div class="page" id="app"></div>
 
 <script>
-const API = 'http://localhost:3001';
+const API = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
 let pools = [];
 let filtered = [];
 let activeTab = 'all';
@@ -683,7 +683,14 @@ function openModalWithStreamer(name) {
 }
 
 function renderLiveSection() {
-  if (liveStreamers.length === 0) return '';
+  if (liveStreamers.length === 0) return `
+    <div class="live-section">
+      <div class="live-header">
+        <div class="live-dot"></div>
+        <div class="live-title">Jetzt live auf Twitch</div>
+      </div>
+      <div class="live-scroll">${`<div class="live-skel"></div>`.repeat(8)}</div>
+    </div>`;
   const cards = liveStreamers.slice(0, 20).map(s => `
     <div class="live-card" onclick="openModalWithStreamer('${esc(s.user_login)}')">
       ${s.thumbnail_url
