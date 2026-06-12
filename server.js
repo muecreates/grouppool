@@ -132,7 +132,8 @@ async function sendStreamlabsAlert(message) {
 const TWITCH_CLIENT_ID     = process.env.TWITCH_CLIENT_ID || '6jmi6nxcfqg5fgijmx6d66t3di6amo';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
 let twitchTokenCache   = null;
-let liveStreamerCache   = { streamers: [], expires: 0 };   // 5-Minuten-Cache
+let liveStreamerCache   = { streamers: [], expires: 0 };
+let categoryCache      = { categories: [], expires: 0 };
 
 async function getTwitchToken() {
   if (twitchTokenCache && twitchTokenCache.expires > Date.now()) return twitchTokenCache.token;
@@ -152,44 +153,78 @@ async function fetchLiveStreamers() {
   const token = await getTwitchToken();
   if (!token) return [];
   try {
-    const streamsRes = await fetch(
-      'https://api.twitch.tv/helix/streams?first=50&language=de&language=en',
-      { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
-    );
-    const streams = (await streamsRes.json()).data || [];
+    // Top 100: two pages of 50
+    const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
+    const [r1, r2] = await Promise.all([
+      fetch('https://api.twitch.tv/helix/streams?first=50', { headers }),
+      fetch('https://api.twitch.tv/helix/streams?first=50&after=', { headers }),
+    ]);
+    const d1 = await r1.json();
+    const d2 = await r2.json();
+    const cursor = d1.pagination?.cursor;
+    let streams = d1.data || [];
+    if (cursor) {
+      const r2b = await fetch(`https://api.twitch.tv/helix/streams?first=50&after=${cursor}`, { headers });
+      streams = [...streams, ...((await r2b.json()).data || [])];
+    }
     if (streams.length === 0) { liveStreamerCache = { streamers: [], expires: Date.now() + 5 * 60_000 }; return []; }
 
-    const userIds = streams.map(s => `id=${s.user_id}`).join('&');
-    const usersRes = await fetch(
-      `https://api.twitch.tv/helix/users?${userIds}`,
-      { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
-    );
+    // Batch user lookup (max 100 per request)
+    const userIds = [...new Set(streams.map(s => s.user_id))];
+    const batches = [];
+    for (let i = 0; i < userIds.length; i += 100) batches.push(userIds.slice(i, i + 100));
     const userMap = {};
-    ((await usersRes.json()).data || []).forEach(u => { userMap[u.id] = u.profile_image_url; });
+    await Promise.all(batches.map(async batch => {
+      const r = await fetch(`https://api.twitch.tv/helix/users?${batch.map(id => `id=${id}`).join('&')}`, { headers });
+      ((await r.json()).data || []).forEach(u => { userMap[u.id] = u.profile_image_url; });
+    }));
 
     const streamers = streams.map(s => ({
       user_name:         s.user_name,
       user_login:        s.user_login,
-      viewer_count:      s.viewer_count,
+      game_id:           s.game_id,
       game_name:         s.game_name,
+      viewer_count:      s.viewer_count,
       title:             s.title,
       thumbnail_url:     (s.thumbnail_url || '').replace('{width}', '440').replace('{height}', '248'),
       profile_image_url: userMap[s.user_id] || '',
     }));
     liveStreamerCache = { streamers, expires: Date.now() + 5 * 60_000 };
     return streamers;
-  } catch { return liveStreamerCache.streamers; }
+  } catch (e) { console.error('[Twitch] fetchLiveStreamers error:', e.message); return liveStreamerCache.streamers; }
+}
+
+async function fetchCategories() {
+  if (categoryCache.expires > Date.now()) return categoryCache.categories;
+  const token = await getTwitchToken();
+  if (!token) return [];
+  try {
+    const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
+    const r = await fetch('https://api.twitch.tv/helix/games/top?first=10', { headers });
+    const categories = ((await r.json()).data || []).map(g => ({
+      id:       g.id,
+      name:     g.name,
+      box_art:  (g.box_art_url || '').replace('{width}', '144').replace('{height}', '192'),
+    }));
+    categoryCache = { categories, expires: Date.now() + 15 * 60_000 };
+    return categories;
+  } catch { return categoryCache.categories; }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// GET /api/live-streamers → top 50 live Streams (aus Cache)
+// GET /api/live-streamers
 app.get('/api/live-streamers', async (req, res) => {
   const streamers = await fetchLiveStreamers();
-  if (streamers.length === 0 && !TWITCH_CLIENT_SECRET) {
+  if (streamers.length === 0 && !TWITCH_CLIENT_SECRET)
     return res.status(503).json({ error: 'TWITCH_CLIENT_SECRET nicht gesetzt.' });
-  }
   res.json({ streamers });
+});
+
+// GET /api/categories → Top 10 Twitch Games mit Box Art
+app.get('/api/categories', async (req, res) => {
+  const categories = await fetchCategories();
+  res.json({ categories });
 });
 
 // GET /api/pools → alle offenen Pools mit Contributor-Count
