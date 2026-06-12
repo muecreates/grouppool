@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check *)",
+      "Bash(curl *)",
+      "Bash(pkill -f *)",
+      "Bash(npm install*)",
+      "Bash(npm run *)",
+      "Bash(node server.js)",
+      "Bash(node test-*.js)"
+    ]
+  }
+}

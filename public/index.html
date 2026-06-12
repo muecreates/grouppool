@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GroupPool</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0e0e10;
+      --surface:  #18181b;
+      --surface2: #1f1f23;
+      --surface3: #26262c;
+      --border:   #2d2d35;
+      --accent:   #9147ff;
+      --accent-h: #772ce8;
+      --accent-s: rgba(145,71,255,.12);
+      --green:    #00e87a;
+      --green-s:  rgba(0,232,122,.1);
+      --red:      #ff4747;
+      --text:     #efeff1;
+      --muted:    #adadb8;
+      --muted2:   #6b6b78;
+      --r:        10px;
+    }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── NAV ─────────────────────────────── */
+    .nav {
+      height: 60px;
+      background: rgba(24,24,27,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo {
+      font-size: 1.25rem; font-weight: 900; letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #9147ff, #c89bff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; cursor: pointer; user-select: none;
+    }
+    .logo span { -webkit-text-fill-color: var(--text); opacity:.4; font-weight:300; }
+
+    /* ── BUTTONS ─────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 18px; border-radius: 8px;
+      font-size: .9rem; font-weight: 700;
+      cursor: pointer; border: none; transition: all .15s;
+      font-family: inherit; text-decoration: none; white-space: nowrap;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-h); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(145,71,255,.4); }
+    .btn-primary:active { transform: none; }
+    .btn-sm { padding: 8px 14px; font-size: .85rem; }
+    .btn-ghost {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-s); }
+    .btn-full { width: 100%; justify-content: center; }
+    .btn:disabled { opacity:.45; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+
+    /* ── LAYOUT ──────────────────────────── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+
+    /* ── TOOLBAR ─────────────────────────── */
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      align-items: center; margin-bottom: 20px;
+    }
+    .search-wrap {
+      position: relative; flex: 1; min-width: 200px;
+    }
+    .search-wrap svg {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--muted2); pointer-events: none;
+    }
+    .search-input {
+      width: 100%;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text);
+      font-size: .95rem; padding: 10px 14px 10px 38px;
+      outline: none; font-family: inherit; transition: border-color .15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--muted2); }
+    .sort-select {
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px;
+      padding: 10px 12px; font-size: .9rem;
+      outline: none; cursor: pointer; font-family: inherit;
+    }
+    .sort-select:focus { border-color: var(--accent); }
+
+    /* ── FILTER TABS ─────────────────────── */
+    .filter-tabs {
+      display: flex; gap: 4px; margin-bottom: 24px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 4px;
+      width: fit-content;
+    }
+    .tab {
+      padding: 7px 16px; border-radius: 7px;
+      font-size: .85rem; font-weight: 600;
+      cursor: pointer; transition: all .15s;
+      color: var(--muted); border: none; background: none;
+      font-family: inherit;
+    }
+    .tab.active { background: var(--accent); color: #fff; }
+    .tab:not(.active):hover { color: var(--text); background: var(--surface2); }
+    .tab-count {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,.15); border-radius: 99px;
+      font-size: .7rem; padding: 1px 6px; margin-left: 4px;
+    }
+
+    /* ── GRID ────────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width: 580px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ── POOL CARD ───────────────────────── */
+    .pool-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 20px;
+      display: flex; flex-direction: column; gap: 14px;
+      transition: border-color .15s, transform .15s, box-shadow .15s;
+      cursor: default;
+    }
+    .pool-card:hover {
+      border-color: rgba(145,71,255,.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+    .card-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 8px;
+    }
+    .streamer-name {
+      font-size: 1.1rem; font-weight: 800; letter-spacing: -.3px;
+      color: var(--text);
+    }
+    .badge-open {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 9px; border-radius: 99px;
+      background: rgba(0,232,122,.12);
+      border: 1px solid rgba(0,232,122,.35);
+      color: var(--green);
+      font-size: .7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .5px;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .badge-open::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(.8); }
+    }
+    .gruppe-name {
+      font-size: .85rem; color: var(--muted); font-weight: 500;
+      margin-top: -6px;
+    }
+    .card-message {
+      font-size: .82rem; color: var(--muted2);
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+      line-height: 1.4;
+    }
+
+    /* ── PROGRESS ────────────────────────── */
+    .prog-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .prog-current {
+      font-size: 1.15rem; font-weight: 800;
+      background: linear-gradient(135deg, var(--green), #00c4ff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .prog-goal { font-size: .8rem; color: var(--muted); }
+    .prog-bg {
+      width: 100%; height: 7px;
+      background: var(--surface2); border-radius: 99px; overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 99px;
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+    }
+    .prog-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 7px;
+    }
+    .prog-pct { font-size: .75rem; color: var(--muted); }
+    .prog-parts { font-size: .78rem; color: var(--muted); }
+
+    /* ── EMPTY STATE ─────────────────────── */
+    .empty {
+      grid-column: 1/-1;
+      text-align: center; padding: 80px 20px;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+    }
+    .empty-icon { font-size: 3rem; }
+    .empty h3 { font-size: 1.2rem; font-weight: 700; }
+    .empty p { color: var(--muted); font-size: .9rem; }
+
+    /* ── LOADING ─────────────────────────── */
+    .loading-grid {
+      display: grid; grid-template-columns: repeat(3,1fr); gap: 16px;
+    }
+    @media (max-width:900px) { .loading-grid { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width:580px) { .loading-grid { grid-template-columns: 1fr; } }
+    .skeleton {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 20px; height: 220px;
+      position: relative; overflow: hidden;
+    }
+    .skeleton::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.04) 50%, transparent 100%);
+      animation: shimmer 1.4s infinite;
+    }
+    @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+    /* ── MODAL ───────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 32px;
+      width: 100%; max-width: 480px;
+      transform: translateY(16px); transition: transform .2s;
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .modal-title { font-size: 1.2rem; font-weight: 800; }
+    .modal-close {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); cursor: pointer; font-size: 1.1rem;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+    }
+    .modal-close:hover { background: var(--surface3); color: var(--text); }
+
+    /* ── FORM ────────────────────────────── */
+    .field { margin-bottom: 18px; }
+    label {
+      display: block; font-size: .75rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .6px;
+      color: var(--muted); margin-bottom: 6px;
+    }
+    input, textarea, select {
+      width: 100%; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-size: .95rem; padding: 11px 13px;
+      outline: none; font-family: inherit; transition: border-color .15s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+    input::placeholder, textarea::placeholder { color: var(--muted2); }
+    textarea { resize: vertical; min-height: 72px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .alert-success {
+      background: var(--green-s); border: 1px solid rgba(0,232,122,.3);
+      color: var(--green); border-radius: 8px; padding: 11px 14px;
+      font-size: .88rem; margin-bottom: 16px;
+    }
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.25);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin .6s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── POOL DETAIL VIEW ────────────────── */
+    .detail-back {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--muted); font-size: .9rem; font-weight: 600;
+      cursor: pointer; margin-bottom: 24px;
+      transition: color .15s;
+    }
+    .detail-back:hover { color: var(--text); }
+    .detail-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 32px;
+      max-width: 620px; margin: 0 auto;
+    }
+    .detail-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 20px; }
+    .badge-pill {
+      padding: 4px 12px; border-radius: 99px;
+      font-size: .75rem; font-weight: 600;
+      background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+    }
+    .badge-pill.purple { background: var(--accent-s); border-color: rgba(145,71,255,.35); color: #c89bff; }
+    .detail-progress { margin: 24px 0; }
+    .detail-amount {
+      font-size: 2rem; font-weight: 900; letter-spacing: -1px;
+      background: linear-gradient(135deg, var(--green), #00c4ff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .participants-section { margin-top: 28px; }
+    .section-label {
+      font-size: .75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; color: var(--muted); margin-bottom: 12px;
+    }
+    .participant-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;
+    }
+    .participant-name { font-weight: 600; font-size: .95rem; }
+    .participant-amt { color: var(--green); font-weight: 700; }
+    .join-panel {
+      margin-top: 32px; padding-top: 28px;
+      border-top: 1px solid var(--border);
+    }
+    .presets { display: flex; gap: 8px; margin-bottom: 14px; }
+    .preset {
+      padding: 7px 14px; border-radius: 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); font-size: .88rem; font-weight: 700;
+      cursor: pointer; transition: all .12s;
+    }
+    .preset:hover, .preset.active {
+      border-color: var(--accent); color: var(--accent); background: var(--accent-s);
+    }
+    .share-row { display: flex; gap: 8px; margin-top: 24px; }
+    .share-url {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 13px;
+      font-family: monospace; font-size: .8rem; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .copy-btn {
+      padding: 10px 14px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--muted); font-size: .82rem; font-weight: 700;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .refresh-info {
+      text-align: right; font-size: .75rem; color: var(--muted2);
+      margin-top: -16px; margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="logo" id="logo">Group<span>Pool</span></div>
+  <button class="btn btn-primary btn-sm" id="nav-create-btn">+ Neuen Pool</button>
+</nav>
+
+<!-- MODAL: Neuen Pool erstellen -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title">Neuen Pool erstellen</div>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div id="modal-success" style="display:none" class="alert-success">
+      ✓ Pool erstellt! Weiterleitung…
+    </div>
+    <form id="create-form">
+      <div class="row2">
+        <div class="field">
+          <label>Streamer</label>
+          <input name="streamer" placeholder="z.B. xqc" required />
+        </div>
+        <div class="field">
+          <label>Ziel (€)</label>
+          <input name="ziel_betrag" type="number" min="1" step="0.01" placeholder="50.00" required />
+        </div>
+      </div>
+      <div class="field">
+        <label>Gruppen-Name</label>
+        <input name="gruppe_name" placeholder="z.B. Die Couch-Gang" required />
+      </div>
+      <div class="field">
+        <label>Nachricht an Streamer</label>
+        <textarea name="message" placeholder="Wir sind 5 Viewer und sagen Danke!" required></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" id="create-btn">
+        Pool erstellen →
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="page" id="app"></div>
+
+<script>
+const API = 'http://localhost:3001';
+let pools = [];
+let filtered = [];
+let activeTab = 'all';
+let sortBy = 'newest';
+let searchQuery = '';
+let refreshTimer = null;
+let poolPollTimer = null;
+
+// ── ROUTER ────────────────────────────────────────────────────────────────────
+function currentPoolId() {
+  return new URLSearchParams(location.search).get('pool');
+}
+function navigate(poolId) {
+  if (poolId) {
+    history.pushState({}, '', `/?pool=${poolId}`);
+  } else {
+    history.pushState({}, '', '/');
+  }
+  render();
+}
+window.addEventListener('popstate', render);
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function apiFetch(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+function openModal() {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.querySelector('#create-form [name=streamer]').focus();
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  document.getElementById('create-form').reset();
+  document.getElementById('modal-success').style.display = 'none';
+  const btn = document.getElementById('create-btn');
+  btn.disabled = false;
+  btn.innerHTML = 'Pool erstellen →';
+}
+document.getElementById('nav-create-btn').addEventListener('click', openModal);
+document.getElementById('logo').addEventListener('click', () => navigate(null));
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+document.getElementById('create-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Erstelle…';
+  const fd = new FormData(e.target);
+  try {
+    const res = await apiFetch('POST', '/pool/create', {
+      streamer: fd.get('streamer'),
+      ziel_betrag: parseFloat(fd.get('ziel_betrag')),
+      gruppe_name: fd.get('gruppe_name'),
+      message: fd.get('message'),
+    });
+    if (res.success) {
+      document.getElementById('modal-success').style.display = 'block';
+      setTimeout(() => { closeModal(); navigate(res.pool.id); }, 800);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = 'Pool erstellen →';
+      alert(res.error || 'Fehler');
+    }
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = 'Pool erstellen →';
+    alert('Server nicht erreichbar (Port 3001).');
+  }
+});
+
+// ── HOME VIEW ─────────────────────────────────────────────────────────────────
+function applyFiltersSort() {
+  let list = [...pools];
+
+  // Tab
+  const now = Date.now();
+  if (activeTab === 'almostfull') {
+    list = list.filter(p => (p.ist_betrag / p.ziel_betrag) >= .75);
+  } else if (activeTab === 'new') {
+    list = list.filter(p => (now - new Date(p.created_at + 'Z').getTime()) < 3600000);
+  }
+
+  // Search
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(p =>
+      p.streamer.toLowerCase().includes(q) ||
+      p.gruppe_name.toLowerCase().includes(q) ||
+      p.message.toLowerCase().includes(q)
+    );
+  }
+
+  // Sort
+  if (sortBy === 'newest') {
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  } else if (sortBy === 'almostfull') {
+    list.sort((a, b) => (b.ist_betrag / b.ziel_betrag) - (a.ist_betrag / a.ziel_betrag));
+  } else if (sortBy === 'popular') {
+    list.sort((a, b) => b.contributor_count - a.contributor_count);
+  } else if (sortBy === 'highest') {
+    list.sort((a, b) => b.ziel_betrag - a.ziel_betrag);
+  }
+
+  filtered = list;
+}
+
+function countTab(tab) {
+  if (tab === 'all') return pools.length;
+  const now = Date.now();
+  if (tab === 'almostfull') return pools.filter(p => (p.ist_betrag / p.ziel_betrag) >= .75).length;
+  if (tab === 'new') return pools.filter(p => (now - new Date(p.created_at + 'Z').getTime()) < 3600000).length;
+  return 0;
+}
+
+function renderCardSkeleton() {
+  return `<div class="skeleton"></div>`.repeat(6);
+}
+
+function poolCard(p) {
+  const pct = Math.min(100, Math.round((p.ist_betrag / p.ziel_betrag) * 100));
+  const msg = p.message.length > 65 ? p.message.slice(0, 62) + '…' : p.message;
+  return `
+    <div class="pool-card" onclick="navigate('${p.id}')">
+      <div class="card-top">
+        <div>
+          <div class="streamer-name">@${esc(p.streamer)}</div>
+          <div class="gruppe-name">${esc(p.gruppe_name)}</div>
+        </div>
+        <div class="badge-open">OFFEN</div>
+      </div>
+      <div class="card-message">${esc(msg)}</div>
+      <div>
+        <div class="prog-header">
+          <span class="prog-current">€${Number(p.ist_betrag).toFixed(2)}</span>
+          <span class="prog-goal">von €${Number(p.ziel_betrag).toFixed(2)}</span>
+        </div>
+        <div class="prog-bg">
+          <div class="prog-fill" style="width:${pct}%"></div>
+        </div>
+        <div class="prog-footer">
+          <span class="prog-pct">${pct}%</span>
+          <span class="prog-parts">👥 ${p.contributor_count} Teilnehmer</span>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm btn-full" onclick="event.stopPropagation();navigate('${p.id}')">
+        Mitmachen →
+      </button>
+    </div>`;
+}
+
+async function loadAndRenderHome() {
+  try {
+    const data = await apiFetch('GET', '/api/pools');
+    pools = data.pools || [];
+  } catch {
+    pools = [];
+  }
+  renderHomeUI();
+  scheduleRefresh();
+}
+
+function renderHomeUI() {
+  applyFiltersSort();
+  const allCount = countTab('all');
+  const almostCount = countTab('almostfull');
+  const newCount = countTab('new');
+
+  const paymentStatus = new URLSearchParams(location.search).get('payment');
+
+  document.getElementById('app').innerHTML = `
+    ${paymentStatus === 'success' ? `<div class="alert-success" style="margin-bottom:20px">✓ Zahlung erfolgreich!</div>` : ''}
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input
+          class="search-input" id="search-input"
+          placeholder="Streamer oder Gruppe suchen…"
+          value="${esc(searchQuery)}"
+        />
+      </div>
+      <select class="sort-select" id="sort-select">
+        <option value="newest"    ${sortBy==='newest'    ?'selected':''}>Neueste zuerst</option>
+        <option value="almostfull"${sortBy==='almostfull'?'selected':''}>Fast voll</option>
+        <option value="popular"   ${sortBy==='popular'   ?'selected':''}>Beliebteste</option>
+        <option value="highest"   ${sortBy==='highest'   ?'selected':''}>Höchstes Ziel</option>
+      </select>
+    </div>
+
+    <div class="filter-tabs">
+      <button class="tab ${activeTab==='all'?'active':''}" data-tab="all">
+        Alle <span class="tab-count">${allCount}</span>
+      </button>
+      <button class="tab ${activeTab==='almostfull'?'active':''}" data-tab="almostfull">
+        Fast voll <span class="tab-count">${almostCount}</span>
+      </button>
+      <button class="tab ${activeTab==='new'?'active':''}" data-tab="new">
+        Neu <span class="tab-count">${newCount}</span>
+      </button>
+    </div>
+
+    <div class="refresh-info" id="refresh-info">Aktualisiert gerade…</div>
+
+    <div class="grid" id="pool-grid">
+      ${filtered.length === 0 ? renderEmpty() : filtered.map(poolCard).join('')}
+    </div>
+  `;
+
+  updateRefreshInfo();
+
+  // Events
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    searchQuery = e.target.value;
+    applyFiltersSort();
+    document.getElementById('pool-grid').innerHTML =
+      filtered.length === 0 ? renderEmpty() : filtered.map(poolCard).join('');
+  });
+  document.getElementById('sort-select').addEventListener('change', (e) => {
+    sortBy = e.target.value;
+    applyFiltersSort();
+    document.getElementById('pool-grid').innerHTML =
+      filtered.length === 0 ? renderEmpty() : filtered.map(poolCard).join('');
+  });
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.tab;
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFiltersSort();
+      document.getElementById('pool-grid').innerHTML =
+        filtered.length === 0 ? renderEmpty() : filtered.map(poolCard).join('');
+      // Update counts
+      document.querySelectorAll('.tab').forEach(b => {
+        const c = b.querySelector('.tab-count');
+        if (c) c.textContent = countTab(b.dataset.tab);
+      });
+    });
+  });
+}
+
+function renderEmpty() {
+  const isFiltered = searchQuery || activeTab !== 'all';
+  return `
+    <div class="empty">
+      <div class="empty-icon">${isFiltered ? '🔍' : '🎮'}</div>
+      <h3>${isFiltered ? 'Keine Pools gefunden' : 'Noch keine Pools offen'}</h3>
+      <p>${isFiltered ? 'Versuch andere Suchbegriffe oder Filter.' : 'Erstell den ersten Pool für deinen Lieblings-Streamer!'}</p>
+      ${!isFiltered ? `<button class="btn btn-primary" onclick="openModal()">+ Ersten Pool erstellen</button>` : ''}
+    </div>`;
+}
+
+let lastRefresh = null;
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  lastRefresh = new Date();
+  updateRefreshInfo();
+  refreshTimer = setTimeout(async () => {
+    if (!currentPoolId()) {
+      try {
+        const data = await apiFetch('GET', '/api/pools');
+        pools = data.pools || [];
+        renderHomeUI();
+      } catch {}
+      scheduleRefresh();
+    }
+  }, 10000);
+}
+
+function updateRefreshInfo() {
+  const el = document.getElementById('refresh-info');
+  if (!el || !lastRefresh) return;
+  el.textContent = `Zuletzt aktualisiert: ${lastRefresh.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit',second:'2-digit'})} · Auto-Refresh alle 10s`;
+}
+
+// ── POOL DETAIL VIEW ──────────────────────────────────────────────────────────
+async function renderPoolDetail(poolId) {
+  const app = document.getElementById('app');
+  const paymentStatus = new URLSearchParams(location.search).get('payment');
+
+  try {
+    const data = await apiFetch('GET', `/pool/${poolId}`);
+    if (data.error) {
+      app.innerHTML = `<div class="detail-card"><p style="color:var(--red)">${esc(data.error)}</p><br>
+        <button class="btn btn-ghost btn-sm" onclick="navigate(null)">← Zurück</button></div>`;
+      return;
+    }
+    const { pool, contributions, fortschritt_prozent, ziel_erreicht } = data;
+    const paidC = contributions.filter(c => c.status === 'paid');
+    const pct = Math.min(100, fortschritt_prozent);
+
+    app.innerHTML = `
+      <div class="detail-back" onclick="navigate(null)">
+        ← Alle Pools
+      </div>
+
+      ${paymentStatus === 'success' ? `<div class="alert-success" style="max-width:620px;margin:0 auto 16px">✓ Zahlung erfolgreich! Pool wurde aktualisiert.</div>` : ''}
+
+      <div class="detail-card">
+        <div style="font-size:1.5rem;font-weight:900;letter-spacing:-.5px">@${esc(pool.streamer)}</div>
+        <div style="color:var(--muted);margin-top:4px;font-size:.9rem">${esc(pool.gruppe_name)}</div>
+
+        <div class="detail-badges">
+          <span class="badge-open">OFFEN</span>
+          <span class="badge-pill purple">${paidC.length} Teilnehmer</span>
+          ${ziel_erreicht ? `<span class="badge-pill" style="background:var(--green-s);border-color:rgba(0,232,122,.35);color:var(--green)">✓ Ziel erreicht</span>` : ''}
+        </div>
+
+        <div style="color:var(--muted);font-size:.9rem;margin-bottom:20px">"${esc(pool.message)}"</div>
+
+        <div class="detail-progress">
+          <div class="prog-header" style="margin-bottom:10px">
+            <span class="detail-amount">€${Number(pool.ist_betrag).toFixed(2)}</span>
+            <span class="prog-goal" style="font-size:.9rem">von €${Number(pool.ziel_betrag).toFixed(2)}</span>
+          </div>
+          <div class="prog-bg" style="height:10px">
+            <div class="prog-fill" id="detail-prog" style="width:0%"></div>
+          </div>
+          <div class="prog-footer" style="margin-top:8px">
+            <span class="prog-pct">${pct}% erreicht</span>
+            <span class="prog-parts">👥 ${paidC.length} von — Teilnehmern</span>
+          </div>
+        </div>
+
+        <div class="participants-section">
+          <div class="section-label">Teilnehmer</div>
+          ${paidC.length === 0
+            ? `<div style="text-align:center;padding:20px;color:var(--muted2);border:1px dashed var(--border);border-radius:8px;font-size:.88rem">Noch niemand dabei — sei der Erste!</div>`
+            : paidC.map(c => `
+              <div class="participant-row">
+                <span class="participant-name">${esc(c.teilnehmer_name)}</span>
+                <span class="participant-amt">€${Number(c.betrag).toFixed(2)}</span>
+              </div>`).join('')
+          }
+        </div>
+
+        ${pool.status === 'open' ? `
+        <div class="join-panel">
+          <div style="font-size:1.1rem;font-weight:800;margin-bottom:4px">Mitmachen</div>
+          <div style="color:var(--muted);font-size:.88rem;margin-bottom:18px">Dein Beitrag wird sicher via Stripe verarbeitet.</div>
+          <form id="join-form">
+            <div class="field">
+              <label>Dein Name</label>
+              <input name="contributor_name" placeholder="z.B. MaxMustermann" required />
+            </div>
+            <div class="field">
+              <label>Betrag (€)</label>
+              <div class="presets">
+                <div class="preset" onclick="setAmt(1)">€1</div>
+                <div class="preset" onclick="setAmt(2)">€2</div>
+                <div class="preset" onclick="setAmt(5)">€5</div>
+                <div class="preset" onclick="setAmt(10)">€10</div>
+              </div>
+              <input name="amount_eur" id="amt-input" type="number" min="0.50" step="0.01" placeholder="5.00" required />
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="join-btn">
+              Zur Kasse → Stripe
+            </button>
+          </form>
+        </div>` : `
+        <div class="join-panel" style="text-align:center">
+          <div style="font-size:2.5rem;margin-bottom:10px">🎉</div>
+          <div style="font-weight:800;font-size:1.1rem">Ziel erreicht!</div>
+          <div style="color:var(--muted);margin-top:6px;font-size:.9rem">Die Donation wurde an @${esc(pool.streamer)} gesendet.</div>
+        </div>`}
+
+        <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--border)">
+          <div class="section-label" style="margin-bottom:10px">Link teilen</div>
+          <div class="share-row">
+            <div class="share-url" id="share-url">${location.origin}/?pool=${pool.id}</div>
+            <button class="copy-btn" onclick="copyLink()">Kopieren</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Animate progress bar
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.getElementById('detail-prog');
+        if (el) el.style.width = `${pct}%`;
+      }, 60);
+    });
+
+    // Join form
+    const joinForm = document.getElementById('join-form');
+    if (joinForm) {
+      joinForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('join-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Weiterleitung…';
+        const fd = new FormData(e.target);
+        const amountCents = Math.round(parseFloat(fd.get('amount_eur')) * 100);
+        try {
+          const res = await apiFetch('POST', `/pool/${poolId}/checkout`, {
+            contributor_name: fd.get('contributor_name'),
+            amount: amountCents,
+          });
+          if (res.checkout_url) {
+            window.location.href = res.checkout_url;
+          } else {
+            alert(res.error || 'Fehler');
+            btn.disabled = false;
+            btn.innerHTML = 'Zur Kasse → Stripe';
+          }
+        } catch {
+          alert('Server nicht erreichbar.');
+          btn.disabled = false;
+          btn.innerHTML = 'Zur Kasse → Stripe';
+        }
+      });
+    }
+
+    // Poll
+    if (poolPollTimer) clearTimeout(poolPollTimer);
+    if (pool.status === 'open') {
+      poolPollTimer = setTimeout(() => renderPoolDetail(poolId), 5000);
+    }
+
+  } catch {
+    app.innerHTML = `<div class="detail-card"><p style="color:var(--red)">Server nicht erreichbar.</p><br>
+      <button class="btn btn-ghost btn-sm" onclick="navigate(null)">← Zurück</button></div>`;
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function setAmt(v) {
+  document.getElementById('amt-input').value = v;
+  document.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+function copyLink() {
+  navigator.clipboard.writeText(document.getElementById('share-url').textContent).then(() => {
+    const b = document.querySelector('.copy-btn');
+    b.textContent = '✓ Kopiert!';
+    b.style.color = 'var(--green)'; b.style.borderColor = 'var(--green)';
+    setTimeout(() => { b.textContent = 'Kopieren'; b.style.color = ''; b.style.borderColor = ''; }, 2000);
+  });
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render() {
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+  if (poolPollTimer) { clearTimeout(poolPollTimer); poolPollTimer = null; }
+  const poolId = currentPoolId();
+  if (poolId) {
+    renderPoolDetail(poolId);
+  } else {
+    document.getElementById('app').innerHTML = `<div class="loading-grid">${renderCardSkeleton()}</div>`;
+    loadAndRenderHome();
+  }
+}
+
+render();
+</script>
+</body>
+</html>

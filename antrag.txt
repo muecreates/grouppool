@@ -1,0 +1,62 @@
+Subject: API Access Request — donations.create & alerts.create Scope Approval
+
+Hi Streamlabs team,
+
+My name is Julian Mühlhoff and I'm building GroupPool — a web application
+that enables multiple stream viewers to pool their donations together and
+send a combined tip to a streamer as a group.
+
+--- What GroupPool does ---
+
+Instead of a single viewer donating $1, GroupPool lets 5, 10, or 20 viewers
+each contribute a small amount. Once the group reaches their shared goal,
+GroupPool sends a single combined donation on their behalf — including a
+message that shows the group's names and total contribution.
+
+Example: "5 viewers pooled together to donate €10.00 — GroupPool"
+
+This creates a new kind of community interaction on stream and makes
+donating accessible for viewers who wouldn't donate alone.
+
+--- Why we need the Streamlabs API ---
+
+We want to integrate with Streamlabs because it is the most widely used
+donation and alert platform among streamers on Twitch and YouTube.
+
+Specifically, we need access to two scopes:
+
+1. donations.create — to submit the pooled donation to the streamer's
+   Streamlabs tip page once the group goal is reached
+
+2. alerts.create — to trigger a custom on-screen alert that shows the
+   group donation with all participants' names, so the streamer and chat
+   can celebrate the moment together
+
+--- Our use case summary ---
+
+- We act on behalf of streamers who connect their Streamlabs account
+  to GroupPool via OAuth
+- Donations are only triggered when the group goal is reached and all
+  participants have confirmed their contribution
+- We do not store Streamlabs credentials; we use short-lived OAuth tokens
+- Volume is low (group donations are a social event, not automated bulk
+  transactions)
+
+--- Current status ---
+
+GroupPool is in active development. Our OAuth app is already registered
+in the Streamlabs developer portal. We are currently blocked by the
+"User is not whitelisted for this client" error on both
+donations.create and alerts.create.
+
+We would appreciate approval for our app or guidance on the steps
+required to reach approved status.
+
+App Client ID: a1ffe62b-3e4c-4080-b936-9733fa6fa442
+
+Thank you for your time. Happy to provide more details or a demo.
+
+Best regards,
+Julian Mühlhoff
+GroupPool
+julian.muehlhoff@gmail.com
