@@ -5,7 +5,6 @@
   },
   "deploy": {
     "startCommand": "node server.js",
-    "healthcheckPath": "/api/pools",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }

@@ -215,6 +215,73 @@
     .prog-pct { font-size: .75rem; color: var(--muted); }
     .prog-parts { font-size: .78rem; color: var(--muted); }
 
+    /* ── TWITCH LIVE ─────────────────────── */
+    .live-section { margin-bottom: 40px; }
+    .live-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 16px;
+    }
+    .live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red); flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+    .live-title { font-size: 1rem; font-weight: 800; }
+    .live-subtitle { font-size: .8rem; color: var(--muted); margin-left: auto; }
+    .live-scroll {
+      display: flex; gap: 12px;
+      overflow-x: auto; padding-bottom: 8px;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+    .live-scroll::-webkit-scrollbar { height: 4px; }
+    .live-scroll::-webkit-scrollbar-track { background: transparent; }
+    .live-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+    .live-card {
+      flex-shrink: 0; width: 200px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); overflow: hidden;
+      cursor: pointer; transition: all .15s;
+      position: relative;
+    }
+    .live-card:hover {
+      border-color: var(--red);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(255,71,71,.15);
+    }
+    .live-thumb {
+      width: 100%; aspect-ratio: 16/9;
+      object-fit: cover; display: block;
+      background: var(--surface2);
+    }
+    .live-badge {
+      position: absolute; top: 8px; left: 8px;
+      background: var(--red); color: #fff;
+      font-size: .65rem; font-weight: 800;
+      padding: 2px 7px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .live-info { padding: 10px 12px; }
+    .live-name { font-weight: 800; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .live-game { font-size: .75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .live-viewers {
+      display: flex; align-items: center; gap: 4px;
+      font-size: .72rem; color: var(--red); font-weight: 700; margin-top: 6px;
+    }
+    .live-avatar {
+      width: 20px; height: 20px; border-radius: 50%;
+      object-fit: cover; border: 1px solid var(--border);
+    }
+    .live-skel {
+      flex-shrink: 0; width: 200px; height: 160px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r); overflow: hidden; position: relative;
+    }
+    .live-skel::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.04), transparent);
+      animation: shimmer 1.4s infinite;
+    }
+
     /* ── EMPTY STATE ─────────────────────── */
     .empty {
       grid-column: 1/-1;
@@ -589,15 +656,62 @@ function poolCard(p) {
     </div>`;
 }
 
+let liveStreamers = [];
+
 async function loadAndRenderHome() {
   try {
-    const data = await apiFetch('GET', '/api/pools');
-    pools = data.pools || [];
+    const [poolsData, liveData] = await Promise.all([
+      apiFetch('GET', '/api/pools'),
+      apiFetch('GET', '/api/live-streamers').catch(() => ({ streamers: [] })),
+    ]);
+    pools = poolsData.pools || [];
+    liveStreamers = liveData.streamers || [];
   } catch {
     pools = [];
+    liveStreamers = [];
   }
   renderHomeUI();
   scheduleRefresh();
+}
+
+function openModalWithStreamer(name) {
+  openModal();
+  setTimeout(() => {
+    const input = document.querySelector('#create-form [name=streamer]');
+    if (input) { input.value = name; input.focus(); }
+  }, 50);
+}
+
+function renderLiveSection() {
+  if (liveStreamers.length === 0) return '';
+  const cards = liveStreamers.slice(0, 20).map(s => `
+    <div class="live-card" onclick="openModalWithStreamer('${esc(s.user_login)}')">
+      ${s.thumbnail_url
+        ? `<img class="live-thumb" src="${esc(s.thumbnail_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        : `<div class="live-thumb"></div>`}
+      <span class="live-badge">LIVE</span>
+      <div class="live-info">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          ${s.profile_image_url ? `<img class="live-avatar" src="${esc(s.profile_image_url)}" alt="" loading="lazy">` : ''}
+          <div class="live-name">${esc(s.user_name)}</div>
+        </div>
+        <div class="live-game">${esc(s.game_name || 'Just Chatting')}</div>
+        <div class="live-viewers">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="5" cy="5" r="5"/></svg>
+          ${Number(s.viewer_count).toLocaleString('de-DE')} Zuschauer
+        </div>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="live-section">
+      <div class="live-header">
+        <div class="live-dot"></div>
+        <div class="live-title">Jetzt live auf Twitch</div>
+        <div class="live-subtitle">Klick auf einen Streamer um einen Pool zu starten</div>
+      </div>
+      <div class="live-scroll">${cards}</div>
+    </div>`;
 }
 
 function renderHomeUI() {
@@ -610,6 +724,8 @@ function renderHomeUI() {
 
   document.getElementById('app').innerHTML = `
     ${paymentStatus === 'success' ? `<div class="alert-success" style="margin-bottom:20px">✓ Zahlung erfolgreich!</div>` : ''}
+
+    ${renderLiveSection()}
 
     <div class="toolbar">
       <div class="search-wrap">
@@ -892,7 +1008,12 @@ function render() {
   if (poolId) {
     renderPoolDetail(poolId);
   } else {
-    document.getElementById('app').innerHTML = `<div class="loading-grid">${renderCardSkeleton()}</div>`;
+    document.getElementById('app').innerHTML = `
+      <div class="live-section">
+        <div class="live-header"><div class="live-dot"></div><div class="live-title">Jetzt live auf Twitch</div></div>
+        <div class="live-scroll">${`<div class="live-skel"></div>`.repeat(6)}</div>
+      </div>
+      <div class="loading-grid">${renderCardSkeleton()}</div>`;
     loadAndRenderHome();
   }
 }

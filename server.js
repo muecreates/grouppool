@@ -119,7 +119,67 @@ async function sendStreamlabsAlert(message) {
   }
 }
 
+// ── Twitch ────────────────────────────────────────────────────────────────────
+
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || '0oq30keqho53qvrh6tdlbi6m0fp77q';
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
+let twitchTokenCache = null;
+
+async function getTwitchToken() {
+  if (twitchTokenCache && twitchTokenCache.expires > Date.now()) return twitchTokenCache.token;
+  if (!TWITCH_CLIENT_SECRET) return null;
+  const res = await fetch(
+    `https://id.twitch.tv/oauth2/token?client_id=${TWITCH_CLIENT_ID}&client_secret=${TWITCH_CLIENT_SECRET}&grant_type=client_credentials`,
+    { method: 'POST' }
+  );
+  const data = await res.json();
+  if (!data.access_token) return null;
+  twitchTokenCache = { token: data.access_token, expires: Date.now() + (data.expires_in - 60) * 1000 };
+  return data.access_token;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
+
+// GET /api/live-streamers → top 50 live Streams von Twitch
+app.get('/api/live-streamers', async (req, res) => {
+  const token = await getTwitchToken();
+  if (!token) {
+    return res.status(503).json({ error: 'Twitch token nicht verfügbar. TWITCH_CLIENT_SECRET setzen.' });
+  }
+  try {
+    const streamsRes = await fetch(
+      'https://api.twitch.tv/helix/streams?first=50&language=de&language=en',
+      { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
+    );
+    const streamsData = await streamsRes.json();
+    const streams = streamsData.data || [];
+
+    // User-Infos (Avatar) nachladen
+    if (streams.length === 0) return res.json({ streamers: [] });
+    const userIds = streams.map(s => `id=${s.user_id}`).join('&');
+    const usersRes = await fetch(
+      `https://api.twitch.tv/helix/users?${userIds}`,
+      { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
+    );
+    const usersData = await usersRes.json();
+    const userMap = {};
+    (usersData.data || []).forEach(u => { userMap[u.id] = u.profile_image_url; });
+
+    const streamers = streams.map(s => ({
+      user_name: s.user_name,
+      user_login: s.user_login,
+      viewer_count: s.viewer_count,
+      game_name: s.game_name,
+      title: s.title,
+      thumbnail_url: (s.thumbnail_url || '').replace('{width}', '440').replace('{height}', '248'),
+      profile_image_url: userMap[s.user_id] || '',
+    }));
+
+    res.json({ streamers });
+  } catch (err) {
+    res.status(500).json({ error: 'Twitch API Fehler: ' + err.message });
+  }
+});
 
 // GET /api/pools → alle offenen Pools mit Contributor-Count
 app.get('/api/pools', async (req, res) => {
