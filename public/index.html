@@ -462,6 +462,60 @@
       text-align: right; font-size: .75rem; color: var(--muted2);
       margin-top: -16px; margin-bottom: 20px;
     }
+
+    /* ── LIVE SEARCH ─────────────────────── */
+    .live-search-wrap {
+      position: relative; margin-bottom: 14px;
+    }
+    .live-search-wrap svg {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      color: var(--muted2); pointer-events: none;
+    }
+    .live-search-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text);
+      font-size: .9rem; padding: 9px 13px 9px 36px;
+      outline: none; font-family: inherit; transition: border-color .15s;
+    }
+    .live-search-input:focus { border-color: var(--accent); }
+    .live-search-input::placeholder { color: var(--muted2); }
+
+    /* ── AUTOCOMPLETE ────────────────────── */
+    .ac-wrap { position: relative; }
+    .ac-input-row { display: flex; align-items: center; gap: 8px; }
+    .ac-selected {
+      display: none; align-items: center; gap: 8px;
+      background: var(--surface2); border: 1px solid var(--accent);
+      border-radius: 8px; padding: 9px 12px; cursor: pointer;
+    }
+    .ac-selected.visible { display: flex; }
+    .ac-selected img { width: 24px; height: 24px; border-radius: 50%; }
+    .ac-selected-name { font-weight: 700; font-size: .95rem; flex: 1; }
+    .ac-selected-clear { color: var(--muted2); font-size: 1rem; line-height: 1; padding: 2px; }
+    .ac-selected-clear:hover { color: var(--red); }
+    .ac-dropdown {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 300;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      max-height: 260px; overflow-y: auto;
+      display: none;
+    }
+    .ac-dropdown.open { display: block; }
+    .ac-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; cursor: pointer; transition: background .1s;
+    }
+    .ac-item:hover, .ac-item.focused { background: var(--surface2); }
+    .ac-item img { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+    .ac-item-info { flex: 1; min-width: 0; }
+    .ac-item-name { font-weight: 700; font-size: .9rem; }
+    .ac-item-game { font-size: .75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ac-item-viewers { font-size: .72rem; color: var(--red); font-weight: 700; white-space: nowrap; }
+    .ac-not-live {
+      font-size: .78rem; color: var(--red);
+      margin-top: 4px; display: none;
+    }
+    .ac-not-live.visible { display: block; }
   </style>
 </head>
 <body>
@@ -484,9 +538,25 @@
     </div>
     <form id="create-form">
       <div class="row2">
-        <div class="field">
-          <label>Streamer</label>
-          <input name="streamer" placeholder="z.B. xqc" required />
+        <div class="field" style="position:relative">
+          <label>Streamer (muss live sein)</label>
+          <!-- Hidden actual value field -->
+          <input type="hidden" name="streamer" id="streamer-value" />
+          <div class="ac-wrap">
+            <!-- Selected state -->
+            <div class="ac-selected" id="ac-selected">
+              <img id="ac-sel-img" src="" alt="" />
+              <span class="ac-selected-name" id="ac-sel-name"></span>
+              <span class="ac-selected-clear" id="ac-clear" title="Ändern">✕</span>
+            </div>
+            <!-- Input + dropdown -->
+            <div id="ac-input-wrap">
+              <input id="ac-input" autocomplete="off" placeholder="Streamer suchen…"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;padding:11px 13px;outline:none;font-family:inherit;transition:border-color .15s" />
+              <div class="ac-dropdown" id="ac-dropdown"></div>
+            </div>
+          </div>
+          <div class="ac-not-live" id="ac-not-live">⚠ Dieser Streamer ist gerade nicht live</div>
         </div>
         <div class="field">
           <label>Ziel (€)</label>
@@ -545,14 +615,77 @@ async function apiFetch(method, path, body) {
   return res.json();
 }
 
+// ── AUTOCOMPLETE ──────────────────────────────────────────────────────────────
+function selectStreamer(s) {
+  if (typeof s === 'string') {
+    // called with user_login string (from live-card click before liveStreamers loaded)
+    s = liveStreamers.find(x => x.user_login === s || x.user_name === s) || { user_name: s, user_login: s, profile_image_url: '' };
+  }
+  document.getElementById('streamer-value').value = s.user_login;
+  document.getElementById('ac-sel-name').textContent  = s.user_name;
+  document.getElementById('ac-sel-img').src           = s.profile_image_url || '';
+  document.getElementById('ac-sel-img').style.display = s.profile_image_url ? '' : 'none';
+  document.getElementById('ac-selected').classList.add('visible');
+  document.getElementById('ac-input-wrap').style.display = 'none';
+  document.getElementById('ac-not-live').classList.remove('visible');
+  closeDropdown();
+}
+
+function clearStreamer() {
+  document.getElementById('streamer-value').value = '';
+  document.getElementById('ac-selected').classList.remove('visible');
+  document.getElementById('ac-input-wrap').style.display = '';
+  document.getElementById('ac-input').value = '';
+  document.getElementById('ac-input').focus();
+}
+
+function openDropdown(items) {
+  const dd = document.getElementById('ac-dropdown');
+  if (items.length === 0) { dd.classList.remove('open'); return; }
+  dd.innerHTML = items.slice(0, 8).map((s, i) => `
+    <div class="ac-item" data-login="${esc(s.user_login)}" onclick="selectStreamer(liveStreamers.find(x=>x.user_login==='${esc(s.user_login)}'))">
+      ${s.profile_image_url ? `<img src="${esc(s.profile_image_url)}" alt="" loading="lazy">` : ''}
+      <div class="ac-item-info">
+        <div class="ac-item-name">${esc(s.user_name)}</div>
+        <div class="ac-item-game">${esc(s.game_name || '')}</div>
+      </div>
+      <div class="ac-item-viewers">👁 ${Number(s.viewer_count).toLocaleString('de-DE')}</div>
+    </div>`).join('');
+  dd.classList.add('open');
+}
+function closeDropdown() {
+  document.getElementById('ac-dropdown')?.classList.remove('open');
+}
+
+document.getElementById('ac-input').addEventListener('input', (e) => {
+  const q = e.target.value.toLowerCase().trim();
+  document.getElementById('ac-not-live').classList.remove('visible');
+  if (!q) { closeDropdown(); return; }
+  const hits = liveStreamers.filter(s =>
+    s.user_login.toLowerCase().includes(q) || s.user_name.toLowerCase().includes(q)
+  );
+  openDropdown(hits);
+  if (q.length >= 2 && hits.length === 0) {
+    document.getElementById('ac-not-live').classList.add('visible');
+  }
+});
+document.getElementById('ac-input').addEventListener('focus', (e) => {
+  if (e.target.value) e.target.dispatchEvent(new Event('input'));
+});
+document.getElementById('ac-clear').addEventListener('click', clearStreamer);
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ac-wrap')) closeDropdown();
+});
+
 // ── MODAL ─────────────────────────────────────────────────────────────────────
 function openModal() {
   document.getElementById('modal-overlay').classList.add('open');
-  document.querySelector('#create-form [name=streamer]').focus();
+  setTimeout(() => document.getElementById('ac-input').focus(), 50);
 }
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
   document.getElementById('create-form').reset();
+  clearStreamer();
   document.getElementById('modal-success').style.display = 'none';
   const btn = document.getElementById('create-btn');
   btn.disabled = false;
@@ -570,16 +703,23 @@ document.addEventListener('keydown', (e) => {
 
 document.getElementById('create-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const streamerVal = document.getElementById('streamer-value').value.trim();
+  if (!streamerVal) {
+    document.getElementById('ac-not-live').classList.add('visible');
+    document.getElementById('ac-not-live').textContent = '⚠ Bitte einen live Streamer auswählen';
+    document.getElementById('ac-input').focus();
+    return;
+  }
   const btn = document.getElementById('create-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Erstelle…';
   const fd = new FormData(e.target);
   try {
     const res = await apiFetch('POST', '/pool/create', {
-      streamer: fd.get('streamer'),
+      streamer:    streamerVal,
       ziel_betrag: parseFloat(fd.get('ziel_betrag')),
       gruppe_name: fd.get('gruppe_name'),
-      message: fd.get('message'),
+      message:     fd.get('message'),
     });
     if (res.success) {
       document.getElementById('modal-success').style.display = 'block';
@@ -587,12 +727,18 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
     } else {
       btn.disabled = false;
       btn.innerHTML = 'Pool erstellen →';
-      alert(res.error || 'Fehler');
+      if (res.error?.includes('nicht live')) {
+        clearStreamer();
+        document.getElementById('ac-not-live').textContent = '⚠ ' + res.error;
+        document.getElementById('ac-not-live').classList.add('visible');
+      } else {
+        alert(res.error || 'Fehler');
+      }
     }
   } catch {
     btn.disabled = false;
     btn.innerHTML = 'Pool erstellen →';
-    alert('Server nicht erreichbar (Port 3001).');
+    alert('Server nicht erreichbar.');
   }
 });
 
@@ -694,25 +840,17 @@ async function loadAndRenderHome() {
   scheduleRefresh();
 }
 
-function openModalWithStreamer(name) {
+// ── Live Streamer Search ──────────────────────────────────────────────────────
+let liveSearchQuery = '';
+
+function openModalWithStreamer(streamer) {
   openModal();
-  setTimeout(() => {
-    const input = document.querySelector('#create-form [name=streamer]');
-    if (input) { input.value = name; input.focus(); }
-  }, 50);
+  setTimeout(() => selectStreamer(streamer), 50);
 }
 
-function renderLiveSection() {
-  if (liveStreamers.length === 0) return `
-    <div class="live-section">
-      <div class="live-header">
-        <div class="live-dot"></div>
-        <div class="live-title">Jetzt live auf Twitch</div>
-      </div>
-      <div class="live-scroll">${`<div class="live-skel"></div>`.repeat(8)}</div>
-    </div>`;
-  const cards = liveStreamers.slice(0, 20).map(s => `
-    <div class="live-card" onclick="openModalWithStreamer('${esc(s.user_login)}')">
+function liveCardHTML(s) {
+  return `
+    <div class="live-card" onclick="openModalWithStreamer(${JSON.stringify(s)})">
       ${s.thumbnail_url
         ? `<img class="live-thumb" src="${esc(s.thumbnail_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
         : `<div class="live-thumb"></div>`}
@@ -728,25 +866,47 @@ function renderLiveSection() {
           ${Number(s.viewer_count).toLocaleString('de-DE')} Zuschauer
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+}
+
+function renderLiveSection() {
+  const skeletons = `<div class="live-scroll">${`<div class="live-skel"></div>`.repeat(8)}</div>`;
+  const scroll = liveStreamers.length === 0 ? skeletons : `
+    <div class="live-search-wrap">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input class="live-search-input" id="live-search-input"
+        placeholder="Streamer suchen…" value="${esc(liveSearchQuery)}" />
+    </div>
+    <div class="live-scroll" id="live-scroll">
+      ${filteredLiveStreamers().map(liveCardHTML).join('')}
+    </div>`;
 
   return `
     <div class="live-section">
       <div class="live-header">
         <div class="live-dot"></div>
         <div class="live-title">Jetzt live auf Twitch</div>
-        <div class="live-subtitle">Klick auf einen Streamer um einen Pool zu starten</div>
+        <div class="live-subtitle">Klick → Pool erstellen</div>
       </div>
-      <div class="live-scroll">${cards}</div>
+      ${scroll}
     </div>`;
+}
+
+function filteredLiveStreamers() {
+  if (!liveSearchQuery) return liveStreamers;
+  const q = liveSearchQuery.toLowerCase();
+  return liveStreamers.filter(s =>
+    s.user_name.toLowerCase().includes(q) || s.user_login.toLowerCase().includes(q)
+  );
 }
 
 function renderHomeUI() {
   applyFiltersSort();
-  const allCount = countTab('all');
+  const allCount    = countTab('all');
   const almostCount = countTab('almostfull');
-  const newCount = countTab('new');
-
+  const newCount    = countTab('new');
   const paymentStatus = new URLSearchParams(location.search).get('payment');
 
   document.getElementById('app').innerHTML = `
@@ -754,16 +914,9 @@ function renderHomeUI() {
 
     ${renderLiveSection()}
 
-    <div class="toolbar">
-      <div class="search-wrap">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-        </svg>
-        <input
-          class="search-input" id="search-input"
-          placeholder="Streamer oder Gruppe suchen…"
-          value="${esc(searchQuery)}"
-        />
+    <div class="toolbar" style="margin-top:32px">
+      <div style="flex:1">
+        <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">Offene Pools</div>
       </div>
       <select class="sort-select" id="sort-select">
         <option value="newest"    ${sortBy==='newest'    ?'selected':''}>Neueste zuerst</option>
@@ -794,13 +947,17 @@ function renderHomeUI() {
 
   updateRefreshInfo();
 
-  // Events
-  document.getElementById('search-input').addEventListener('input', (e) => {
-    searchQuery = e.target.value;
-    applyFiltersSort();
-    document.getElementById('pool-grid').innerHTML =
-      filtered.length === 0 ? renderEmpty() : filtered.map(poolCard).join('');
-  });
+  // Live-Streamer Suche
+  const liveSearchEl = document.getElementById('live-search-input');
+  if (liveSearchEl) {
+    liveSearchEl.addEventListener('input', (e) => {
+      liveSearchQuery = e.target.value;
+      const scroll = document.getElementById('live-scroll');
+      if (scroll) scroll.innerHTML = filteredLiveStreamers().map(liveCardHTML).join('');
+    });
+  }
+
+  // Pool Sort
   document.getElementById('sort-select').addEventListener('change', (e) => {
     sortBy = e.target.value;
     applyFiltersSort();

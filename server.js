@@ -129,14 +129,15 @@ async function sendStreamlabsAlert(message) {
 
 // ── Twitch ────────────────────────────────────────────────────────────────────
 
-const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || '6jmi6nxcfqg5fgijmx6d66t3di6amo';
+const TWITCH_CLIENT_ID     = process.env.TWITCH_CLIENT_ID || '6jmi6nxcfqg5fgijmx6d66t3di6amo';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
-let twitchTokenCache = null;
+let twitchTokenCache   = null;
+let liveStreamerCache   = { streamers: [], expires: 0 };   // 5-Minuten-Cache
 
 async function getTwitchToken() {
   if (twitchTokenCache && twitchTokenCache.expires > Date.now()) return twitchTokenCache.token;
   if (!TWITCH_CLIENT_SECRET) return null;
-  const res = await fetch(
+  const res  = await fetch(
     `https://id.twitch.tv/oauth2/token?client_id=${TWITCH_CLIENT_ID}&client_secret=${TWITCH_CLIENT_SECRET}&grant_type=client_credentials`,
     { method: 'POST' }
   );
@@ -146,47 +147,49 @@ async function getTwitchToken() {
   return data.access_token;
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-
-// GET /api/live-streamers → top 50 live Streams von Twitch
-app.get('/api/live-streamers', async (req, res) => {
+async function fetchLiveStreamers() {
+  if (liveStreamerCache.expires > Date.now()) return liveStreamerCache.streamers;
   const token = await getTwitchToken();
-  if (!token) {
-    return res.status(503).json({ error: 'Twitch token nicht verfügbar. TWITCH_CLIENT_SECRET setzen.' });
-  }
+  if (!token) return [];
   try {
     const streamsRes = await fetch(
       'https://api.twitch.tv/helix/streams?first=50&language=de&language=en',
       { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
     );
-    const streamsData = await streamsRes.json();
-    const streams = streamsData.data || [];
+    const streams = (await streamsRes.json()).data || [];
+    if (streams.length === 0) { liveStreamerCache = { streamers: [], expires: Date.now() + 5 * 60_000 }; return []; }
 
-    // User-Infos (Avatar) nachladen
-    if (streams.length === 0) return res.json({ streamers: [] });
     const userIds = streams.map(s => `id=${s.user_id}`).join('&');
     const usersRes = await fetch(
       `https://api.twitch.tv/helix/users?${userIds}`,
       { headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
     );
-    const usersData = await usersRes.json();
     const userMap = {};
-    (usersData.data || []).forEach(u => { userMap[u.id] = u.profile_image_url; });
+    ((await usersRes.json()).data || []).forEach(u => { userMap[u.id] = u.profile_image_url; });
 
     const streamers = streams.map(s => ({
-      user_name: s.user_name,
-      user_login: s.user_login,
-      viewer_count: s.viewer_count,
-      game_name: s.game_name,
-      title: s.title,
-      thumbnail_url: (s.thumbnail_url || '').replace('{width}', '440').replace('{height}', '248'),
+      user_name:         s.user_name,
+      user_login:        s.user_login,
+      viewer_count:      s.viewer_count,
+      game_name:         s.game_name,
+      title:             s.title,
+      thumbnail_url:     (s.thumbnail_url || '').replace('{width}', '440').replace('{height}', '248'),
       profile_image_url: userMap[s.user_id] || '',
     }));
+    liveStreamerCache = { streamers, expires: Date.now() + 5 * 60_000 };
+    return streamers;
+  } catch { return liveStreamerCache.streamers; }
+}
 
-    res.json({ streamers });
-  } catch (err) {
-    res.status(500).json({ error: 'Twitch API Fehler: ' + err.message });
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+// GET /api/live-streamers → top 50 live Streams (aus Cache)
+app.get('/api/live-streamers', async (req, res) => {
+  const streamers = await fetchLiveStreamers();
+  if (streamers.length === 0 && !TWITCH_CLIENT_SECRET) {
+    return res.status(503).json({ error: 'TWITCH_CLIENT_SECRET nicht gesetzt.' });
   }
+  res.json({ streamers });
 });
 
 // GET /api/pools → alle offenen Pools mit Contributor-Count
@@ -213,6 +216,18 @@ app.post('/pool/create', async (req, res) => {
   }
   if (isNaN(ziel_betrag) || Number(ziel_betrag) <= 0) {
     return res.status(400).json({ error: 'ziel_betrag muss eine positive Zahl sein' });
+  }
+
+  // Streamer muss aktuell live sein (Cache 5 Minuten)
+  const liveList = await fetchLiveStreamers();
+  if (liveList.length > 0) {
+    const q = streamer.toLowerCase().trim();
+    const isLive = liveList.some(s =>
+      s.user_login.toLowerCase() === q || s.user_name.toLowerCase() === q
+    );
+    if (!isLive) {
+      return res.status(400).json({ error: 'Dieser Streamer ist gerade nicht live' });
+    }
   }
 
   const id = uid();
