@@ -398,6 +398,26 @@
       background: linear-gradient(135deg, var(--green), #00c4ff);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     }
+    /* ── FEE BREAKDOWN ───────────────────── */
+    .fee-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 16px;
+      margin: 14px 0; display: none;
+    }
+    .fee-box.visible { display: block; }
+    .fee-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: .85rem; padding: 3px 0;
+    }
+    .fee-row .fee-label { color: var(--muted); }
+    .fee-row .fee-val   { font-weight: 600; }
+    .fee-divider { height: 1px; background: var(--border); margin: 8px 0; }
+    .fee-total .fee-label { color: var(--text); font-weight: 700; }
+    .fee-total .fee-val   { color: var(--green); font-size: 1rem; font-weight: 800; }
+    .fee-note {
+      font-size: .72rem; color: var(--muted2); margin-top: 8px; line-height: 1.4;
+    }
+
     .participants-section { margin-top: 28px; }
     .section-label {
       font-size: .75rem; font-weight: 700; text-transform: uppercase;
@@ -902,14 +922,14 @@ async function renderPoolDetail(poolId) {
         ${pool.status === 'open' ? `
         <div class="join-panel">
           <div style="font-size:1.1rem;font-weight:800;margin-bottom:4px">Mitmachen</div>
-          <div style="color:var(--muted);font-size:.88rem;margin-bottom:18px">Dein Beitrag wird sicher via Stripe verarbeitet.</div>
+          <div style="color:var(--muted);font-size:.88rem;margin-bottom:18px">Dein Beitrag geht vollständig an @${esc(pool.streamer)} — Fees werden aufgeschlagen.</div>
           <form id="join-form">
             <div class="field">
               <label>Dein Name</label>
               <input name="contributor_name" placeholder="z.B. MaxMustermann" required />
             </div>
             <div class="field">
-              <label>Betrag (€)</label>
+              <label>Dein Beitrag (€)</label>
               <div class="presets">
                 <div class="preset" onclick="setAmt(1)">€1</div>
                 <div class="preset" onclick="setAmt(2)">€2</div>
@@ -918,6 +938,32 @@ async function renderPoolDetail(poolId) {
               </div>
               <input name="amount_eur" id="amt-input" type="number" min="0.50" step="0.01" placeholder="5.00" required />
             </div>
+
+            <div class="fee-box" id="fee-box">
+              <div class="fee-row">
+                <span class="fee-label">Dein Beitrag</span>
+                <span class="fee-val" id="fee-contribution">–</span>
+              </div>
+              <div class="fee-row">
+                <span class="fee-label">Service Fee (5%)</span>
+                <span class="fee-val" id="fee-service">–</span>
+              </div>
+              <div class="fee-row">
+                <span class="fee-label">Zahlungsgebühr</span>
+                <span class="fee-val" id="fee-payment">–</span>
+              </div>
+              <div class="fee-divider"></div>
+              <div class="fee-row fee-total">
+                <span class="fee-label">Du zahlst</span>
+                <span class="fee-val" id="fee-total">–</span>
+              </div>
+              <div class="fee-note">
+                @${esc(pool.streamer)} erhält den vollen Betrag von
+                <strong id="fee-pool-total" style="color:var(--green)">€${Number(pool.ziel_betrag).toFixed(2)}</strong>
+                sobald das Ziel erreicht ist.
+              </div>
+            </div>
+
             <button type="submit" class="btn btn-primary btn-full" id="join-btn">
               Zur Kasse → Stripe
             </button>
@@ -947,9 +993,37 @@ async function renderPoolDetail(poolId) {
       }, 60);
     });
 
-    // Join form
+    // Join form — Fee-Berechnung + Submit
     const joinForm = document.getElementById('join-form');
     if (joinForm) {
+      const amtInput = document.getElementById('amt-input');
+      const feeBox   = document.getElementById('fee-box');
+
+      function updateFeePreview() {
+        const euros = parseFloat(amtInput.value);
+        if (!euros || isNaN(euros) || euros <= 0) {
+          feeBox.classList.remove('visible');
+          return;
+        }
+        // Berechnung clientseitig spiegelt server-seitige calcFees():
+        const totalCharge = Math.ceil(((euros + 0.25) / (1 - 0.065)) * 100) / 100;
+        const serviceFee  = Math.round(euros * 0.05 * 100) / 100;
+        const paymentFee  = Math.round((totalCharge - euros - serviceFee) * 100) / 100;
+
+        document.getElementById('fee-contribution').textContent = `€${euros.toFixed(2)}`;
+        document.getElementById('fee-service').textContent      = `€${serviceFee.toFixed(2)}`;
+        document.getElementById('fee-payment').textContent      = `€${paymentFee.toFixed(2)}`;
+        document.getElementById('fee-total').textContent        = `€${totalCharge.toFixed(2)}`;
+
+        const btn = document.getElementById('join-btn');
+        if (btn) btn.textContent = `€${totalCharge.toFixed(2)} → Stripe bezahlen`;
+
+        feeBox.classList.add('visible');
+      }
+
+      amtInput.addEventListener('input', updateFeePreview);
+      if (amtInput.value) updateFeePreview();
+
       joinForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('join-btn');
@@ -967,12 +1041,12 @@ async function renderPoolDetail(poolId) {
           } else {
             alert(res.error || 'Fehler');
             btn.disabled = false;
-            btn.innerHTML = 'Zur Kasse → Stripe';
+            btn.textContent = 'Zur Kasse → Stripe';
           }
         } catch {
           alert('Server nicht erreichbar.');
           btn.disabled = false;
-          btn.innerHTML = 'Zur Kasse → Stripe';
+          btn.textContent = 'Zur Kasse → Stripe';
         }
       });
     }
@@ -991,7 +1065,10 @@ async function renderPoolDetail(poolId) {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function setAmt(v) {
-  document.getElementById('amt-input').value = v;
+  const input = document.getElementById('amt-input');
+  if (!input) return;
+  input.value = v;
+  input.dispatchEvent(new Event('input'));
   document.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
   event.currentTarget.classList.add('active');
 }

@@ -324,7 +324,29 @@ app.get('/pool/:id/success', async (req, res) => {
   res.json({ success: true, message: 'Zahlung erfolgreich!', pool_id: pool.id });
 });
 
-// POST /pool/:id/checkout → erstellt Stripe Checkout Session
+// ── Fee calculation ───────────────────────────────────────────────────────────
+// Fees werden auf den Contributor aufgeschlagen (Pass-through Modell):
+//   Platform fee : 5 %
+//   Stripe fee   : 1.5 % + €0.25 (EU-Karten)
+// Formel stellt sicher dass der Streamer genau `amount` erhält:
+//   contributor_pays = (amount + 0.25) / (1 - 0.065)
+function calcFees(amountEuros) {
+  const totalCharge = Math.ceil(((amountEuros + 0.25) / (1 - 0.065)) * 100) / 100;
+  const serviceFee  = Math.round(amountEuros * 0.05 * 100) / 100;
+  const paymentFee  = Math.round((totalCharge - amountEuros - serviceFee) * 100) / 100;
+  return { totalCharge, serviceFee, paymentFee };
+}
+
+// GET /api/fees?amount=<euros> → gibt Fee-Breakdown zurück (für Live-Vorschau)
+app.get('/api/fees', (req, res) => {
+  const amount = parseFloat(req.query.amount);
+  if (!amount || isNaN(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'amount als Query-Parameter erforderlich' });
+  }
+  res.json({ amount, ...calcFees(amount) });
+});
+
+// POST /pool/:id/checkout → erstellt Stripe Checkout Session mit Fee-Aufschlag
 // amount wird in Cents übergeben (Stripe-Standard), z.B. 500 = €5.00
 app.post('/pool/:id/checkout', async (req, res) => {
   const { contributor_name, amount } = req.body;
@@ -336,53 +358,67 @@ app.post('/pool/:id/checkout', async (req, res) => {
     return res.status(400).json({ error: 'Fehlende Felder: contributor_name, amount (in Cents)' });
   }
 
-  const amountCents = Math.round(Number(amount));
-  const amountEuros = amountCents / 100;
-  const contrib_id = uid();
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3001';
+  const amountEuros   = Math.round(Number(amount)) / 100;
+  const { totalCharge, serviceFee, paymentFee } = calcFees(amountEuros);
+  const totalCents    = Math.round(totalCharge * 100);
+  const platformCents = Math.round(serviceFee * 100);
+  const contrib_id    = uid();
+  const baseUrl       = process.env.BASE_URL || 'http://localhost:3001';
 
   if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith('sk_test_...')) {
-    return res.status(400).json({
-      error: 'Kein gültiger STRIPE_SECRET_KEY in .env gesetzt.',
-      hinweis: 'Trage deinen Stripe Test-Key ein: sk_test_...',
-    });
+    return res.status(400).json({ error: 'Kein gültiger STRIPE_SECRET_KEY gesetzt.' });
   }
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams = {
       line_items: [{
         price_data: {
           currency: 'eur',
           product_data: {
-            name: `GroupPool: ${pool.gruppe_name} → ${pool.streamer}`,
-            description: pool.message,
+            name: `GroupPool: ${pool.gruppe_name} → @${pool.streamer}`,
+            description: `Dein Beitrag: €${amountEuros.toFixed(2)} | Service: €${serviceFee.toFixed(2)} | Gebühr: €${paymentFee.toFixed(2)}`,
           },
-          unit_amount: amountCents,
+          unit_amount: totalCents,
         },
         quantity: 1,
       }],
       mode: 'payment',
       success_url: `${baseUrl}/pool/${pool.id}?payment=success`,
-      cancel_url: `${baseUrl}/pool/${pool.id}?payment=cancelled`,
+      cancel_url:  `${baseUrl}/pool/${pool.id}?payment=cancelled`,
       metadata: {
-        pool_id: pool.id,
+        pool_id:         pool.id,
         contrib_id,
         contributor_name,
-        amount_euros: amountEuros.toString(),
+        amount_euros:    amountEuros.toString(),   // nur der echte Beitrag fürs Ziel
+        total_charge:    totalCharge.toString(),
+        service_fee:     serviceFee.toString(),
       },
-    });
+    };
 
+    // application_fee_amount erfordert Stripe Connect (connected account)
+    if (process.env.STRIPE_CONNECTED_ACCOUNT_ID) {
+      sessionParams.application_fee_amount = platformCents;
+      sessionParams.transfer_data = { destination: process.env.STRIPE_CONNECTED_ACCOUNT_ID };
+    } else {
+      console.log(`[Checkout] Platform fee €${serviceFee.toFixed(2)} (Connect nicht konfiguriert, manuell tracken)`);
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    // DB speichert nur den echten Beitrag (ohne Fees) → trackt korrekt gegen Ziel
     await dbRun(
       'INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, stripe_session, status) VALUES (?, ?, ?, ?, ?, ?)',
       [contrib_id, pool.id, contributor_name, amountEuros, session.id, 'pending']
     );
 
     res.json({
-      success: true,
-      checkout_url: session.url,
+      success:         true,
+      checkout_url:    session.url,
       contribution_id: contrib_id,
-      amount_euros: amountEuros,
-      session_id: session.id,
+      amount_euros:    amountEuros,
+      service_fee:     serviceFee,
+      payment_fee:     paymentFee,
+      total_charge:    totalCharge,
     });
   } catch (err) {
     res.status(500).json({ error: 'Stripe Fehler: ' + err.message });
