@@ -417,8 +417,8 @@ app.post('/pool/create', async (req, res) => {
   if (!streamer || !ziel_betrag || !message || !gruppe_name)
     return res.status(400).json({ error: 'Fehlende Felder' });
   const namesVisible = (names_visible === false || names_visible === 0 || names_visible === '0') ? 0 : 1;
-  if (Number(ziel_betrag) < 2)
-    return res.status(400).json({ error: 'Mindest-Zielbetrag: 2 €' });
+  if (Number(ziel_betrag) < 1)
+    return res.status(400).json({ error: 'Mindest-Zielbetrag: 1 €' });
   if (Number(ziel_betrag) > 10)
     return res.status(400).json({ error: 'Maximaler Zielbetrag für Tests: 10 €' });
 
