@@ -312,6 +312,8 @@ app.post('/pool/create', async (req, res) => {
     return res.status(400).json({ error: 'Fehlende Felder' });
   if (Number(ziel_betrag) < 1)
     return res.status(400).json({ error: 'Mindest-Zielbetrag: 1 €' });
+  if (Number(ziel_betrag) > 10)
+    return res.status(400).json({ error: 'Maximaler Zielbetrag für Tests: 10 €' });
 
   const beitrag = Number(ersteller_beitrag) || 0;
   const base    = process.env.BASE_URL || 'http://localhost:3001';
