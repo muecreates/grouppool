@@ -752,11 +752,8 @@ initDb().then(() => {
     console.log(`[CONFIG] BASE_URL: ${process.env.BASE_URL || '(nicht gesetzt, Standard: http://localhost:3001)'}`);
     console.log(`[CONFIG] DATABASE_URL: ${process.env.DATABASE_URL ? 'gesetzt (PostgreSQL)' : 'nicht gesetzt (SQLite)'}`);
 
-    try {
-      const streamers = await fetchLiveStreamers();
-      streamers.slice(0, 20).forEach(s => resolveDonationUrl(s.user_login).catch(() => {}));
-      console.log(`[STARTUP] Pre-caching ${Math.min(20, streamers.length)} Streamer-Links...`);
-    } catch {}
+    // Pre-caching removed: launching 20 concurrent Playwright browsers on startup
+    // exhausts Railway container memory (SIGKILL). URLs resolve lazily on first trigger.
     // Recover open pools that reached their goal before this restart (lost from in-memory queue)
     try {
       const strandedPools = await dbAll(
