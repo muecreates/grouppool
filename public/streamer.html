@@ -29,8 +29,6 @@
     .qr-wrap img { border-radius:12px; border:4px solid #fff; }
     .copy-link { background:none; border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
     .copy-link:hover { background:var(--surface); }
-    .pools-link { display:block; margin-top:16px; color:var(--purple); font-size:14px; font-weight:600; text-decoration:none; }
-    .pools-link:hover { text-decoration:underline; }
     .spinner { display:inline-block; width:18px; height:18px; border:2px solid rgba(255,255,255,.2); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
     .error { color:var(--red); font-size:13px; margin-top:12px; }
@@ -66,7 +64,7 @@
 
       <div class="qr-wrap">
         <p style="font-size:12px;color:var(--muted);margin-bottom:12px">QR-Code für Stream-Overlay / Panel-Bild:</p>
-        <img id="qrImg" src="" alt="QR Code" width="180" height="180">
+        <img id="qrImg" src="" alt="QR Code" width="180" height="180" loading="lazy">
       </div>
     </div>
 

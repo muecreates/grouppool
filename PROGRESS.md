@@ -18,8 +18,10 @@
 - [x] Task 10: Helper text in Mitmachen
 - [x] Task 11/12: Active/closed pool sections + streamer "Pool aktiv" badge
 
-### Section 4 — Performance
-- [ ] Task 13-16: Cache headers, lazy images, CSS cleanup
+### Section 4 — Performance ✅
+- [x] Task 13: Static cache headers (maxAge 1h, etag)
+- [x] Task 14/16: loading="lazy" + width/height on stream thumb & QR img
+- [x] Task 15: Removed unused .pools-link CSS (streamer.html); no other unused rules found
 
 ### Section 5 — Streamer Discovery
 - [ ] Task 17-19: game/lang/sort filters

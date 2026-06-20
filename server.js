@@ -11,7 +11,10 @@ const { initDb, dbGet, dbAll, dbRun, uid } = require('./db');
 const app = express();
 app.use('/webhook/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1h',
+  etag: true,
+}));
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 
