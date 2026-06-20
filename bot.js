@@ -142,19 +142,58 @@ async function clickSubmit(page, selector, label) {
 
 async function fillPayPalCardForm(page) {
   await page.waitForSelector('input[name="card_number"]', { timeout: 15_000 });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1000);
+
+  // 1. Country prüfen und ggf. auf Germany setzen BEVOR andere Felder gefüllt werden
+  //    (Country-Änderung triggert Form-Re-render — danach nochmal warten)
+  const countryInput = page.locator('input[name="combo_t_country"]').first();
+  if (await countryInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const current = await countryInput.inputValue().catch(() => '');
+    if (!current.toLowerCase().includes('germany') && !current.toLowerCase().includes('deutschland')) {
+      await countryInput.triple_click?.().catch(() => countryInput.click());
+      await countryInput.fill('Germany');
+      // Wähle aus Dropdown-Vorschlag
+      const suggestion = page.locator('[role="option"]:has-text("Germany"), li:has-text("Germany")').first();
+      if (await suggestion.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await suggestion.click();
+      } else {
+        await page.keyboard.press('Enter');
+      }
+      console.log('[BOT] Country → Germany ✓');
+      // Form re-rendert nach Country-Wechsel — warten
+      await page.waitForTimeout(3_000);
+      await page.waitForSelector('input[name="card_number"]', { timeout: 10_000 });
+      await page.waitForTimeout(800);
+    } else {
+      console.log(`[BOT] Country bereits: "${current}" ✓`);
+    }
+  }
+
+  // 2. Alle Felder ausfüllen
+  const phone = process.env.CARD_PHONE || '01512345678';
   const fields = [
-    ['input[name="card_number"]',     CARD.number,    'card_number'],
-    ['input[name="card_expiration"]', CARD.expiry,    'card_expiration'],
-    ['input[name="card_cvv"]',        CARD.cvv,       'card_cvv'],
-    ['input[name="firstName"]',       CARD.firstName, 'firstName'],
-    ['input[name="lastName"]',        CARD.lastName,  'lastName'],
-    ['input[name="addressLine1"]',    CARD.address,   'addressLine1'],
-    ['input[name="postalCode"]',      CARD.plz,       'postalCode'],
-    ['input[name="adminArea2"]',      CARD.city,      'adminArea2'],
-    ['input[name="email"]',           CARD.email,     'email'],
+    ['input[name="card_number"]',       CARD.number,    'card_number'],
+    ['input[name="card_expiration"]',   CARD.expiry,    'card_expiration'],
+    ['input[name="card_cvv"]',          CARD.cvv,       'card_cvv'],
+    ['input[name="firstName"]',         CARD.firstName, 'firstName'],
+    ['input[name="lastName"]',          CARD.lastName,  'lastName'],
+    ['input[name="addressLine1"]',      CARD.address,   'addressLine1'],
+    ['input[name="postalCode"]',        CARD.plz,       'postalCode'],
+    ['input[name="adminArea2"]',        CARD.city,      'adminArea2'],
+    ['input[name="email"]',             CARD.email,     'email'],
+    ['input[name="phoneInput-phone"]',  phone,          'phone'],
+    ['input[name="phoneInput-mobile"]', phone,          'mobile'],
   ];
   for (const [sel, val, label] of fields) await fillIfVisible(page, sel, val, label);
+
+  // 3. "Informationen speichern" Checkbox deaktivieren → kein Passwort nötig
+  const saveBox = page.locator('input[name="isSignupOpted"]').first();
+  if (await saveBox.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    if (await saveBox.isChecked().catch(() => false)) {
+      await saveBox.uncheck();
+      console.log('[BOT] Save-Checkbox deaktiviert ✓');
+    }
+  }
 }
 
 // ── TipeeeStream ──────────────────────────────────────────────────────────────

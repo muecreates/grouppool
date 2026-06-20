@@ -195,8 +195,11 @@ async function joinPool() {
 }
 
 function share() {
-  const url = location.href.split('?')[0];
-  navigator.clipboard?.writeText(url).then(() => alert('Link kopiert!')).catch(() => prompt('Link:', url));
+  // Use OG-redirect URL so Discord/Twitter/WhatsApp get preview
+  const ogUrl = `${location.origin}/pool/${poolId}/og`;
+  navigator.clipboard?.writeText(ogUrl)
+    .then(() => alert('Link kopiert!\n\nDieser Link zeigt eine Vorschau in Discord, Twitter und WhatsApp.'))
+    .catch(() => prompt('Teilen-Link:', ogUrl));
 }
 
 load();

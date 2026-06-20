@@ -1,66 +1,17 @@
 require('dotenv').config();
 const { runBotDonation } = require('./bot');
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const fetch   = require('node-fetch');
 const path    = require('path');
 const stripe  = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2026-05-27.dahlia',
 });
+const { initDb, dbGet, dbAll, dbRun, uid } = require('./db');
 
 const app = express();
 app.use('/webhook/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// ── Database ──────────────────────────────────────────────────────────────────
-
-const DB_PATH = './grouppool.db';
-console.log(`[DB] Opening database at ${DB_PATH}`);
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) console.error('[DB] Failed:', err.message);
-  else console.log('[DB] Connected');
-});
-
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS pools (
-    id TEXT PRIMARY KEY, streamer TEXT NOT NULL, gruppe_name TEXT NOT NULL,
-    message TEXT NOT NULL, ziel_betrag REAL NOT NULL, ist_betrag REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS contributions (
-    id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, teilnehmer_name TEXT NOT NULL,
-    betrag REAL NOT NULL, stripe_session TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY (pool_id) REFERENCES pools(id)
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS platform_status (
-    platform TEXT PRIMARY KEY, healthy INTEGER NOT NULL DEFAULT 1,
-    last_check TEXT, last_error TEXT, degraded_since TEXT
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS streamer_links (
-    streamer TEXT NOT NULL, platform TEXT NOT NULL, url TEXT NOT NULL,
-    last_checked TEXT NOT NULL, PRIMARY KEY (streamer, platform)
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS bot_logs (
-    id TEXT PRIMARY KEY, pool_id TEXT, timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-    platform TEXT, status TEXT, message TEXT
-  )`);
-  // Seed platform_status rows
-  ['streamlabs','tipeeestream','streamelements','twitch'].forEach(p =>
-    db.run(`INSERT OR IGNORE INTO platform_status (platform) VALUES (?)`, [p])
-  );
-});
-
-function dbGet(sql, params = []) {
-  return new Promise((res, rej) => db.get(sql, params, (e, r) => e ? rej(e) : res(r)));
-}
-function dbAll(sql, params = []) {
-  return new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r)));
-}
-function dbRun(sql, params = []) {
-  return new Promise((res, rej) => db.run(sql, params, function(e) { e ? rej(e) : res(this); }));
-}
-function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
 // ── Telegram ──────────────────────────────────────────────────────────────────
 
@@ -164,21 +115,45 @@ async function scrapeStreamlabsLink(twitchUsername) {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    const ctx  = await browser.newContext({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36', locale: 'de-DE' });
-    const page = await ctx.newPage();
-    await page.goto(`https://www.twitch.tv/${twitchUsername}/about`, { waitUntil: 'networkidle', timeout: 30_000 });
-    const consentBtn = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), button[data-a-target="consent-banner-accept"]');
-    await consentBtn.click({ timeout: 3_000 }).catch(() => {});
-    for (let i = 0; i < 4; i++) { await page.evaluate(s => window.scrollBy(0, s * 600), i + 1); await page.waitForTimeout(800); }
-    await page.waitForSelector('.channel-panels-container a, [data-target="channel-panels"] a', { timeout: 5_000 }).catch(() => {});
-    const hrefs = await page.$$eval('a[href], iframe[src]', els => els.map(el => el.href || el.src).filter(Boolean));
-    console.log(`[SCRAPE] ${hrefs.length} Links auf twitch.tv/${twitchUsername}/about`);
-    const found = hrefs.find(h => DONATION_DOMAINS.some(d => h.includes(d)) || (h.includes('/tip') && !h.includes('twitch.tv') && !h.includes('twitter')));
-    if (found) {
-      const platform = found.includes('streamlabs') ? 'streamlabs' : found.includes('streamelements') ? 'streamelements' : 'tipeeestream';
-      await setCachedLink(twitchUsername, platform, found);
+    const ctx = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+      locale: 'de-DE',
+    });
+
+    const isDonationLink = (h) =>
+      DONATION_DOMAINS.some(d => h.includes(d)) ||
+      (h.includes('/tip') && !h.includes('twitch.tv') && !h.includes('twitter'));
+
+    // Scrape both /about and main channel page for panel links
+    for (const url of [
+      `https://www.twitch.tv/${twitchUsername}/about`,
+      `https://www.twitch.tv/${twitchUsername}`,
+    ]) {
+      const page = await ctx.newPage();
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+        const consent = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), button[data-a-target="consent-banner-accept"]');
+        await consent.click({ timeout: 3_000 }).catch(() => {});
+        // Scroll to load panels
+        for (let i = 0; i < 4; i++) { await page.evaluate(s => window.scrollBy(0, s * 600), i + 1); await page.waitForTimeout(800); }
+        // Extra wait for dynamic panel load
+        await page.waitForTimeout(5_000);
+        await page.waitForSelector('.channel-panels-container a, [data-target="channel-panels"] a', { timeout: 3_000 }).catch(() => {});
+        const hrefs = await page.$$eval('a[href], iframe[src]', els => els.map(el => el.href || el.src).filter(Boolean));
+        console.log(`[SCRAPE] ${hrefs.length} Links auf ${url}`);
+        const found = hrefs.find(isDonationLink);
+        if (found) {
+          const platform = found.includes('streamlabs') ? 'streamlabs' : found.includes('streamelements') ? 'streamelements' : 'tipeeestream';
+          await setCachedLink(twitchUsername, platform, found);
+          return found;
+        }
+      } catch (err) {
+        console.error(`[SCRAPE] ${url}: ${err.message}`);
+      } finally {
+        await page.close().catch(() => {});
+      }
     }
-    return found ?? null;
+    return null;
   } catch (err) {
     console.error(`[SCRAPE] Fehler bei ${twitchUsername}:`, err.message);
     return null;
@@ -263,11 +238,10 @@ async function _runTrigger(poolId) {
   // Telegram: Bot gestartet
   await sendTelegram(`🚀 <b>GroupPool Bot gestartet</b>\nPool: <code>${poolId}</code>\nStreamer: @${pool.streamer}\nBetrag: ${pool.ist_betrag.toFixed(2)} €\nPlattform: ${platform}`);
 
-  const logId = uid();
   runBotDonation(pool.streamer, pool.ist_betrag, donationMessage, pool.gruppe_name, donationUrl,
     async (status, msg) => {
       await dbRun('INSERT INTO bot_logs (id, pool_id, platform, status, message) VALUES (?, ?, ?, ?, ?)',
-        [logId, poolId, platform, status, msg]);
+        [uid(), poolId, platform, status, msg]);  // fresh uid() per log entry
     }
   )
   .then(async () => {
@@ -453,28 +427,86 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
   res.json({ pools, logs, platforms });
 });
 
-// ── Pool Detail Page ──────────────────────────────────────────────────────────
+// ── Pool Detail Page (mit OpenGraph) ─────────────────────────────────────────
+
+app.get('/pool/:id/og', async (req, res) => {
+  try {
+    const pool  = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
+    if (!pool) return res.redirect('/');
+    const contribs = await dbAll("SELECT COUNT(*) AS cnt FROM contributions WHERE pool_id = ? AND status = 'paid'", [req.params.id]);
+    const cnt  = contribs[0]?.cnt || 0;
+    const pct  = Math.min(100, Math.round(pool.ist_betrag / pool.ziel_betrag * 100));
+    const base = process.env.BASE_URL || 'http://localhost:3001';
+    const pageUrl = `${base}/pool.html?id=${pool.id}`;
+    const title = `GroupPool: ${pool.gruppe_name} für @${pool.streamer}`;
+    const desc  = `${pool.ist_betrag.toFixed(2)} € von ${pool.ziel_betrag.toFixed(2)} € gesammelt (${pct}%) · ${cnt} Teilnehmer · "${pool.message}"`;
+    res.set('Content-Type', 'text/html').send(`<!DOCTYPE html><html><head>
+      <meta charset="UTF-8">
+      <title>${esc(title)}</title>
+      <meta name="description" content="${esc(desc)}">
+      <meta property="og:title" content="${esc(title)}">
+      <meta property="og:description" content="${esc(desc)}">
+      <meta property="og:url" content="${esc(pageUrl)}">
+      <meta property="og:type" content="website">
+      <meta property="og:site_name" content="GroupPool">
+      <meta name="twitter:card" content="summary">
+      <meta name="twitter:title" content="${esc(title)}">
+      <meta name="twitter:description" content="${esc(desc)}">
+      <meta http-equiv="refresh" content="0;url=${esc(pageUrl)}">
+    </head><body><a href="${esc(pageUrl)}">→ Zum Pool</a></body></html>`);
+  } catch (e) {
+    res.redirect('/');
+  }
+});
+
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 app.get('/pool.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'pool.html'));
 });
 
+// ── Streamer Onboarding ───────────────────────────────────────────────────────
+
+app.get('/streamer/:name', async (req, res) => {
+  const name = req.params.name.toLowerCase().trim();
+  try {
+    // Cache prüfen
+    const cached = await getCachedLink(name);
+    if (cached) {
+      const platform = cached.includes('streamlabs') ? 'streamlabs' : cached.includes('streamelements') ? 'streamelements' : 'tipeeestream';
+      return res.json({ streamer: name, platform, donationUrl: cached, cached: true });
+    }
+    // Scrapen
+    const donationUrl = await resolveDonationUrl(name);
+    const platform = donationUrl.includes('streamlabs') ? 'streamlabs' : donationUrl.includes('streamelements') ? 'streamelements' : 'tipeeestream';
+    res.json({ streamer: name, platform, donationUrl, cached: false });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/streamer.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'streamer.html'));
+});
+
 // ── Start + Monitor ───────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, async () => {
-  console.log(`GroupPool läuft auf http://localhost:${PORT}`);
-  // Pre-cache top streamers at startup
-  try {
-    const streamers = await fetchLiveStreamers();
-    streamers.slice(0, 20).forEach(s =>
-      resolveDonationUrl(s.user_login).catch(() => {})
-    );
-    console.log(`[STARTUP] Pre-caching links für ${Math.min(20, streamers.length)} Streamer...`);
-  } catch {}
-  // Start monitor
-  try { require('./monitor').start(db, dbGet, dbAll, dbRun, sendTelegram, fetchLiveStreamers); }
-  catch (e) { console.error('[MONITOR] Start-Fehler:', e.message); }
+
+initDb().then(() => {
+  app.listen(PORT, async () => {
+    console.log(`GroupPool läuft auf http://localhost:${PORT}`);
+    try {
+      const streamers = await fetchLiveStreamers();
+      streamers.slice(0, 20).forEach(s => resolveDonationUrl(s.user_login).catch(() => {}));
+      console.log(`[STARTUP] Pre-caching ${Math.min(20, streamers.length)} Streamer-Links...`);
+    } catch {}
+    try { require('./monitor').start(null, dbGet, dbAll, dbRun, sendTelegram, fetchLiveStreamers); }
+    catch (e) { console.error('[MONITOR] Start-Fehler:', e.message); }
+  });
+}).catch(e => {
+  console.error('[FATAL] DB init fehlgeschlagen:', e.message);
+  process.exit(1);
 });
 
-module.exports = { db, dbGet, dbAll, dbRun, sendTelegram };
+module.exports = { dbGet, dbAll, dbRun, sendTelegram };

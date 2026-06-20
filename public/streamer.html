@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GroupPool – Streamer Setup</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg:#0e0e10; --surface:#18181b; --card:#1f1f23; --border:#2c2c35; --purple:#9146ff; --green:#00c853; --red:#eb0400; --text:#efeff1; --muted:#adadb8; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Inter",sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; height:56px; display:flex; align-items:center; gap:12px; }
+    .logo { font-size:18px; font-weight:800; color:var(--purple); text-decoration:none; }
+    .main { max-width:640px; margin:0 auto; padding:40px 20px 60px; }
+    h1 { font-size:26px; font-weight:800; margin-bottom:8px; }
+    .sub { color:var(--muted); font-size:15px; margin-bottom:32px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; margin-bottom:20px; }
+    .field label { display:block; font-size:11px; font-weight:700; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em; }
+    .field input { width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:12px 14px; font-size:15px; font-family:inherit; outline:none; }
+    .field input:focus { border-color:var(--purple); }
+    .btn { display:inline-flex; align-items:center; gap:8px; background:var(--purple); color:#fff; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:700; font-size:15px; margin-top:16px; width:100%; justify-content:center; }
+    .btn:hover { opacity:.85; }
+    .btn:disabled { opacity:.4; cursor:not-allowed; }
+    .platform-badge { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:700; padding:4px 12px; border-radius:100px; margin-bottom:16px; }
+    .platform-badge.streamlabs { background:rgba(128,0,255,.15); color:#8000ff; }
+    .platform-badge.tipeeestream { background:rgba(255,152,0,.15); color:#ff9800; }
+    .platform-badge.streamelements { background:rgba(33,150,243,.15); color:#2196f3; }
+    .result-url { font-family:monospace; font-size:12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 12px; word-break:break-all; color:var(--muted); margin-bottom:16px; }
+    .qr-wrap { text-align:center; margin:20px 0; }
+    .qr-wrap img { border-radius:12px; border:4px solid #fff; }
+    .copy-link { background:none; border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+    .copy-link:hover { background:var(--surface); }
+    .pools-link { display:block; margin-top:16px; color:var(--purple); font-size:14px; font-weight:600; text-decoration:none; }
+    .pools-link:hover { text-decoration:underline; }
+    .spinner { display:inline-block; width:18px; height:18px; border:2px solid rgba(255,255,255,.2); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .error { color:var(--red); font-size:13px; margin-top:12px; }
+    .steps { margin-top:20px; }
+    .step { display:flex; gap:14px; margin-bottom:14px; font-size:14px; }
+    .step-num { flex-shrink:0; width:28px; height:28px; background:var(--purple); border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; }
+  </style>
+</head>
+<body>
+<header><a class="logo" href="/">🎯 GroupPool</a><span style="color:var(--muted);font-size:13px">Streamer Setup</span></header>
+<div class="main">
+  <h1>Für Streamer 🎮</h1>
+  <p class="sub">Gib deinen Twitch-Namen ein. Wir erkennen automatisch welche Donation-Plattform du nutzt und erstellen deinen Pool-Link.</p>
+
+  <div class="card">
+    <div class="field">
+      <label>Dein Twitch-Name</label>
+      <input id="streamerInput" type="text" placeholder="z. B. eliasn97" onkeydown="if(event.key==='Enter')lookup()">
+    </div>
+    <button class="btn" id="lookupBtn" onclick="lookup()">Plattform erkennen →</button>
+    <p id="error" class="error"></p>
+  </div>
+
+  <div id="result" style="display:none">
+    <div class="card">
+      <div id="platformBadge" class="platform-badge"></div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px">Erkannte Donation-URL:</p>
+      <div id="donationUrl" class="result-url"></div>
+
+      <p style="font-size:13px;color:var(--muted);margin-bottom:8px">Dein GroupPool-Link (in Twitch-Panel einfügen):</p>
+      <div id="poolsUrl" class="result-url"></div>
+      <button class="copy-link" onclick="copyLink()">📋 Link kopieren</button>
+
+      <div class="qr-wrap">
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">QR-Code für Stream-Overlay / Panel-Bild:</p>
+        <img id="qrImg" src="" alt="QR Code" width="180" height="180">
+      </div>
+    </div>
+
+    <div class="card">
+      <p style="font-weight:700;margin-bottom:14px">So funktioniert's:</p>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div>Füge den GroupPool-Link in ein Twitch-Panel ein</div></div>
+        <div class="step"><div class="step-num">2</div><div>Deine Community erstellt Pools wenn du live bist</div></div>
+        <div class="step"><div class="step-num">3</div><div>Wenn genug Leute mitmachen, sendet der Bot automatisch die Donation</div></div>
+        <div class="step"><div class="step-num">4</div><div>Du bekommst die Spende auf deiner Donation-Seite angezeigt</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+const PLATFORM_ICONS = { streamlabs: '🟣', tipeeestream: '🟠', streamelements: '🔵' };
+const PLATFORM_NAMES = { streamlabs: 'Streamlabs', tipeeestream: 'TipeeeStream', streamelements: 'StreamElements' };
+
+let currentStreamer = '';
+
+async function lookup() {
+  const name = document.getElementById('streamerInput').value.trim().toLowerCase();
+  if (!name) return;
+  const btn = document.getElementById('lookupBtn');
+  const err = document.getElementById('error');
+  err.textContent = '';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Erkenne Plattform…';
+
+  try {
+    const res  = await fetch(`/streamer/${encodeURIComponent(name)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Fehler');
+    currentStreamer = data.streamer;
+    showResult(data);
+  } catch (e) {
+    err.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Plattform erkennen →';
+  }
+}
+
+function showResult({ streamer, platform, donationUrl, cached }) {
+  const base = location.origin;
+  const poolsUrl = `${base}/?streamer=${encodeURIComponent(streamer)}`;
+
+  document.getElementById('platformBadge').className = `platform-badge ${platform}`;
+  document.getElementById('platformBadge').textContent = `${PLATFORM_ICONS[platform] || '⬜'} ${PLATFORM_NAMES[platform] || platform}${cached ? ' (Cache)' : ''}`;
+  document.getElementById('donationUrl').textContent = donationUrl;
+  document.getElementById('poolsUrl').textContent = poolsUrl;
+  document.getElementById('qrImg').src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(poolsUrl)}`;
+  document.getElementById('result').style.display = 'block';
+}
+
+function copyLink() {
+  const base = location.origin;
+  const url  = `${base}/?streamer=${encodeURIComponent(currentStreamer)}`;
+  navigator.clipboard?.writeText(url).then(() => alert('Link kopiert!')).catch(() => prompt('Link:', url));
+}
+</script>
+</body>
+</html>
