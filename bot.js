@@ -314,24 +314,40 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     throw new Error('PayPal "Debit or Credit Card" Button nicht gefunden (Screenshot: /tmp/streamlabs-paypal-modal.png)');
   }
 
-  // ── STEP 4: click card button, watch for card-form popup ─────────────────
+  // ── STEP 4: click card button, watch for popup OR inline iframe form ──────
   const [cardPopup] = await Promise.all([
-    context.waitForEvent('page', { timeout: 8_000 }).catch(() => null),
+    context.waitForEvent('page', { timeout: 10_000 }).catch(() => null),
     cardBtn.click(),
   ]);
 
-  const formCtx = cardPopup || ppCtx;
+  let formCtx;
   if (cardPopup) {
     await cardPopup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
     console.log('[BOT] Karten-Popup geladen:', cardPopup.url());
     await checkCaptcha(cardPopup);
+    formCtx = cardPopup;
   } else {
-    await ppCtx.waitForTimeout(2000);
+    // Card form typically expands inline inside a PayPal iframe on the same page.
+    // Give it time to render, then find which frame contains card_number.
+    await ppCtx.waitForTimeout(4000);
+    console.log('[BOT] Suche Karten-Formular in Frames...');
+    formCtx = ppCtx; // fallback
+    for (const frame of [ppCtx, ...ppCtx.frames()]) {
+      try {
+        const hasCard = await frame.locator('input[name="card_number"], input[id*="card"], input[placeholder*="ard"]').first()
+          .isVisible({ timeout: 3_000 }).catch(() => false);
+        if (hasCard) {
+          console.log('[BOT] Karten-Formular gefunden in Frame:', frame.url?.() ?? 'main');
+          formCtx = frame;
+          break;
+        }
+      } catch {}
+    }
   }
 
   // ── STEP 5: fill card details + submit ───────────────────────────────────
   console.log('\n[BOT] ── Kreditkartenformular (Streamlabs/PayPal) ──');
-  await formCtx.screenshot({ path: '/tmp/streamlabs-card-form.png', fullPage: true });
+  await ppCtx.screenshot({ path: '/tmp/streamlabs-card-form.png', fullPage: true });
   await fillPayPalCardForm(formCtx);
   await checkCaptcha(formCtx);
   await clickSubmit(
