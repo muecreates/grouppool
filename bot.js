@@ -1,5 +1,12 @@
 require('dotenv').config();
 const { chromium } = require('playwright');
+const fs = require('fs');
+
+// Screenshots go to /data/screenshots/ (Railway volume) so they survive deploys
+// and are downloadable via `railway volume files download`.
+const SHOT_DIR = process.env.SCREENSHOT_DIR || '/data/screenshots';
+try { fs.mkdirSync(SHOT_DIR, { recursive: true }); } catch {}
+function shot(name) { return `${SHOT_DIR}/${name}`; }
 
 const BOT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
@@ -314,7 +321,7 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   await fillIfVisible(page, 'input[name="tip amount"]', amount.toString(), 'tip amount');
   await fillIfVisible(page, 'textarea[name="message"]', message,           'message');
 
-  await page.screenshot({ path: '/tmp/streamlabs-filled.png', fullPage: true });
+  await page.screenshot({ path: '${SHOT_DIR}/streamlabs-filled.png', fullPage: true });
 
   const donateBtn = page.locator('button:has-text("Donate"), button:has-text("Tip"), button.button--action').first();
   if (!await donateBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
@@ -332,7 +339,7 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
 
   await page.waitForTimeout(3000);
   await checkCaptcha(page);
-  await page.screenshot({ path: '/tmp/streamlabs-after-donate.png', fullPage: true });
+  await page.screenshot({ path: '${SHOT_DIR}/streamlabs-after-donate.png', fullPage: true });
 
   // ── STEP 3: find "Debit or Credit Card" button in modal/popup/frames ─────
   let ppCtx = page;
@@ -367,8 +374,8 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   }
 
   if (!cardBtn) {
-    await ppCtx.screenshot({ path: '/tmp/streamlabs-paypal-modal.png', fullPage: true });
-    throw new Error('PayPal "Debit or Credit Card" Button nicht gefunden (Screenshot: /tmp/streamlabs-paypal-modal.png)');
+    await ppCtx.screenshot({ path: '${SHOT_DIR}/streamlabs-paypal-modal.png', fullPage: true });
+    throw new Error('PayPal "Debit or Credit Card" Button nicht gefunden (Screenshot: ${SHOT_DIR}/streamlabs-paypal-modal.png)');
   }
 
   // ── STEP 4: click card button, watch for popup OR inline iframe form ──────
@@ -404,7 +411,7 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
 
   // ── STEP 5: fill card details + submit ───────────────────────────────────
   console.log('\n[BOT] ── Kreditkartenformular (Streamlabs/PayPal) ──');
-  await ppCtx.screenshot({ path: '/tmp/streamlabs-card-form.png', fullPage: true });
+  await ppCtx.screenshot({ path: '${SHOT_DIR}/streamlabs-card-form.png', fullPage: true });
 
   if (cardPopup) {
     // Classic PayPal popup: full checkout page with named inputs
@@ -420,8 +427,22 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   const SUBMIT_SEL = 'button:has-text("Pay Now"), button:has-text("Pay"), button:has-text("Confirm"), button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Continue")';
   let submitted = await clickSubmit(formCtx, SUBMIT_SEL, 'PayPal Karten-Submit');
   if (!submitted) {
-    // Try main page (submit button sometimes lives outside the iframe)
-    await clickSubmit(ppCtx, SUBMIT_SEL, 'PayPal Karten-Submit (Hauptseite)');
+    submitted = await clickSubmit(ppCtx, SUBMIT_SEL, 'PayPal Karten-Submit (Hauptseite)');
+  }
+
+  if (submitted) {
+    // ── STEP 6: wait 10s for PayPal response, capture result ─────────────
+    console.log('[BOT] Warte 10s auf PayPal-Antwort...');
+    await ppCtx.waitForTimeout(10_000);
+    const resultUrl = ppCtx.url();
+    console.log(`[BOT] Ergebnis-URL: ${resultUrl}`);
+    const resultShot = shot(`streamlabs-result-${Date.now()}.png`);
+    await ppCtx.screenshot({ path: resultShot, fullPage: true }).catch(() => {});
+    console.log(`[BOT] Ergebnis-Screenshot: ${resultShot}`);
+
+    // Log page title / any error text visible on screen
+    const resultText = await ppCtx.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => '');
+    console.log(`[BOT] Seiten-Inhalt: ${resultText.replace(/\n+/g, ' ').trim()}`);
   }
 }
 
@@ -463,8 +484,8 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   await fillIfVisible(page, 'textarea[name="message"]',    message,    'message');
   await fillIfVisible(page, 'input[name="tipperUsername"]', groupName,  'tipperUsername');
 
-  await page.screenshot({ path: '/tmp/se-payment.png', fullPage: true });
-  console.log('[BOT] Screenshot: /tmp/se-payment.png');
+  await page.screenshot({ path: '${SHOT_DIR}/se-payment.png', fullPage: true });
+  console.log('[BOT] Screenshot: ${SHOT_DIR}/se-payment.png');
 
   // Submit (führt zu Login-Modal → dokumentiert)
   const tipBtn = page.locator([
@@ -522,9 +543,9 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl,
     else if (platform === 'streamelements') await withTimeout(flowStreamElements(page, context, opts),  STEP_TIMEOUT * 3, 'flowStreamElements');
     else                                    await withTimeout(flowTipeeeStream(page, context, opts),    STEP_TIMEOUT * 4, 'flowTipeeeStream');
 
-    const shot = `/tmp/grouppool_${platform}_${Date.now()}.png`;
-    await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
-    console.log(`[BOT] Screenshot: ${shot}`);
+    const shotPath = shot(`grouppool_${platform}_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath, fullPage: true }).catch(() => {});
+    console.log(`[BOT] Screenshot: ${shotPath}`);
     await onLog('success', `Abgeschlossen auf ${platform}`);
 
     if (TEST_MODE) await page.waitForTimeout(3_000);
@@ -532,7 +553,7 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl,
   } catch (err) {
     if (err.message === 'CAPTCHA_REQUIRED') throw err;
     console.error('[BOT] Fehler:', err.message);
-    await page.screenshot({ path: `/tmp/grouppool_error_${Date.now()}.png`, fullPage: true }).catch(() => {});
+    await page.screenshot({ path: shot(`grouppool_error_${Date.now()}.png`), fullPage: true }).catch(() => {});
     await onLog('error', err.message.slice(0, 500));
   } finally {
     await browser.close();
