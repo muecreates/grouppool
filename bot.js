@@ -138,21 +138,18 @@ async function clickSubmit(page, selector, label) {
   return false;
 }
 
-// ── Shared: PayPal Kreditkartenformular ───────────────────────────────────────
+// ── Shared: PayPal classic checkout card form (popup flow) ───────────────────
 
 async function fillPayPalCardForm(page) {
   await page.waitForSelector('input[name="card_number"]', { timeout: 15_000 });
   await page.waitForTimeout(1000);
 
-  // 1. Country prüfen und ggf. auf Germany setzen BEVOR andere Felder gefüllt werden
-  //    (Country-Änderung triggert Form-Re-render — danach nochmal warten)
   const countryInput = page.locator('input[name="combo_t_country"]').first();
   if (await countryInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     const current = await countryInput.inputValue().catch(() => '');
     if (!current.toLowerCase().includes('germany') && !current.toLowerCase().includes('deutschland')) {
       await countryInput.triple_click?.().catch(() => countryInput.click());
       await countryInput.fill('Germany');
-      // Wähle aus Dropdown-Vorschlag
       const suggestion = page.locator('[role="option"]:has-text("Germany"), li:has-text("Germany")').first();
       if (await suggestion.isVisible({ timeout: 2_000 }).catch(() => false)) {
         await suggestion.click();
@@ -160,7 +157,6 @@ async function fillPayPalCardForm(page) {
         await page.keyboard.press('Enter');
       }
       console.log('[BOT] Country → Germany ✓');
-      // Form re-rendert nach Country-Wechsel — warten
       await page.waitForTimeout(3_000);
       await page.waitForSelector('input[name="card_number"]', { timeout: 10_000 });
       await page.waitForTimeout(800);
@@ -169,7 +165,6 @@ async function fillPayPalCardForm(page) {
     }
   }
 
-  // 2. Alle Felder ausfüllen
   const phone = process.env.CARD_PHONE || '01512345678';
   const fields = [
     ['input[name="card_number"]',       CARD.number,    'card_number'],
@@ -186,7 +181,6 @@ async function fillPayPalCardForm(page) {
   ];
   for (const [sel, val, label] of fields) await fillIfVisible(page, sel, val, label);
 
-  // 3. "Informationen speichern" Checkbox deaktivieren → kein Passwort nötig
   const saveBox = page.locator('input[name="isSignupOpted"]').first();
   if (await saveBox.isVisible({ timeout: 1_000 }).catch(() => false)) {
     if (await saveBox.isChecked().catch(() => false)) {
@@ -194,6 +188,47 @@ async function fillPayPalCardForm(page) {
       console.log('[BOT] Save-Checkbox deaktiviert ✓');
     }
   }
+}
+
+// ── PayPal smart card-fields (inline iframe-per-field component) ──────────────
+// PayPal renders number/expiry/cvv each in their own sub-iframe under
+// paypal.com/smart/card-fields. There is no input[name="card_number"] —
+// each frame has a single bare <input>. We type into them via keyboard.
+
+async function typeIntoFrame(frames, urlFragment, value, label) {
+  const frame = frames.find(f => (f.url?.() ?? '').includes(urlFragment));
+  if (!frame) { console.log(`[BOT] Frame für ${label} nicht gefunden`); return; }
+  try {
+    const input = frame.locator('input').first();
+    await input.waitFor({ state: 'visible', timeout: 8_000 });
+    await input.click();
+    await input.fill('');
+    await frame.keyboard.type(value, { delay: 80 });
+    console.log(`[BOT] ${label} → "${value}" ✓`);
+  } catch (e) {
+    console.log(`[BOT] ${label} Fehler: ${e.message}`);
+  }
+}
+
+async function fillPayPalCardFields(cardFieldsFrame) {
+  // Give nested sub-iframes time to render after card button click
+  await cardFieldsFrame.waitForTimeout(3000);
+
+  // Collect all frames reachable from the card-fields parent frame
+  const allFrames = cardFieldsFrame.childFrames ? cardFieldsFrame.childFrames() : [];
+  console.log(`[BOT] card-fields sub-frames: ${allFrames.length} (${allFrames.map(f => f.url?.().split('?')[0]).join(', ')})`);
+
+  await typeIntoFrame(allFrames, 'type=number',   CARD.number, 'card_number');
+  await typeIntoFrame(allFrames, 'type=expiry',   CARD.expiry, 'card_expiry');
+  await typeIntoFrame(allFrames, 'type=cvv',      CARD.cvv,    'card_cvv');
+  await typeIntoFrame(allFrames, 'type=name',
+    `${CARD.firstName} ${CARD.lastName}`,          'card_name');
+
+  // Name/postal fields may also be in the parent card-fields frame itself
+  await fillIfVisible(cardFieldsFrame, 'input[name="firstName"]',  CARD.firstName, 'firstName');
+  await fillIfVisible(cardFieldsFrame, 'input[name="lastName"]',   CARD.lastName,  'lastName');
+  await fillIfVisible(cardFieldsFrame, 'input[name="postalCode"]', CARD.plz,       'postalCode');
+  await fillIfVisible(cardFieldsFrame, 'input[name="email"]',      CARD.email,     'email');
 }
 
 // ── TipeeeStream ──────────────────────────────────────────────────────────────
@@ -348,13 +383,24 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   // ── STEP 5: fill card details + submit ───────────────────────────────────
   console.log('\n[BOT] ── Kreditkartenformular (Streamlabs/PayPal) ──');
   await ppCtx.screenshot({ path: '/tmp/streamlabs-card-form.png', fullPage: true });
-  await fillPayPalCardForm(formCtx);
+
+  if (cardPopup) {
+    // Classic PayPal popup: full checkout page with named inputs
+    await fillPayPalCardForm(formCtx);
+  } else {
+    // Inline card-fields component: each field is a separate sub-iframe
+    await fillPayPalCardFields(formCtx);
+  }
+
   await checkCaptcha(formCtx);
-  await clickSubmit(
-    formCtx,
-    'button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Pay Now"), button:has-text("Continue")',
-    'PayPal Karten-Submit'
-  );
+
+  // Submit button may be in the card-fields frame or on the main Streamlabs page
+  const SUBMIT_SEL = 'button:has-text("Pay Now"), button:has-text("Pay"), button:has-text("Confirm"), button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Continue")';
+  let submitted = await clickSubmit(formCtx, SUBMIT_SEL, 'PayPal Karten-Submit');
+  if (!submitted) {
+    // Try main page (submit button sometimes lives outside the iframe)
+    await clickSubmit(ppCtx, SUBMIT_SEL, 'PayPal Karten-Submit (Hauptseite)');
+  }
 }
 
 // ── StreamElements ────────────────────────────────────────────────────────────
