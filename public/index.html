@@ -120,6 +120,19 @@
     .field textarea { resize: vertical; min-height: 80px; }
     .modal-footer { display: flex; gap: 10px; margin-top: 24px; justify-content: flex-end; }
 
+    /* ── Tooltip (pure CSS) ── */
+    .tooltip { position: relative; cursor: help; display: inline-block; }
+    .tooltip::after {
+      content: attr(data-tip);
+      position: absolute; left: 50%; bottom: 130%; transform: translateX(-50%);
+      background: #000; color: #fff; padding: 8px 10px; border-radius: 6px;
+      font-size: 12px; font-weight: 400; line-height: 1.4; white-space: normal;
+      width: 220px; text-align: left; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+      border: 1px solid var(--border); opacity: 0; pointer-events: none;
+      transition: opacity .15s; z-index: 1000;
+    }
+    .tooltip:hover::after { opacity: 1; }
+
     /* ── Contributions list ── */
     .contrib-list { font-size: 13px; color: var(--muted); margin-top: 8px; }
     .contrib-list li { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
@@ -198,6 +211,13 @@
       <label>Zielbetrag (€)</label>
       <input id="c-ziel" type="number" min="5" max="500" step="1" placeholder="50">
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Min. 5 € · Max. 500 €</div>
+    </div>
+    <div class="field" style="margin-top:4px">
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;cursor:pointer">
+        <input id="c-names-visible" type="checkbox" checked style="width:auto;cursor:pointer">
+        Teilnehmernamen in der Donation-Nachricht anzeigen
+        <span class="tooltip" data-tip="Wenn aktiviert, werden die Teilnehmernamen in der Donation-Nachricht angezeigt.">ℹ️</span>
+      </label>
     </div>
     <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
       <div class="field">
@@ -390,6 +410,7 @@
     document.getElementById('c-gruppe').value   = '';
     document.getElementById('c-message').value  = '';
     document.getElementById('c-ziel').value     = '';
+    const nv = document.getElementById('c-names-visible'); if (nv) nv.checked = true;
     document.getElementById('createSubmitBtn').disabled = false;
     openModal('createModal');
   }
@@ -409,6 +430,7 @@
     const ziel_betrag      = parseFloat(document.getElementById('c-ziel').value);
     const ersteller_name   = document.getElementById('c-creator-name')?.value.trim() || '';
     const ersteller_beitrag = parseFloat(document.getElementById('c-creator-beitrag')?.value || 0);
+    const names_visible    = document.getElementById('c-names-visible')?.checked ?? true;
 
     if (!streamer || !gruppe_name || !message || !ziel_betrag || ziel_betrag <= 0) {
       toast('Bitte alle Felder ausfüllen.', 'error'); return;
@@ -427,7 +449,7 @@
       const data = await apiFetch('/pool/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ streamer, gruppe_name, message, ziel_betrag, ersteller_name, ersteller_beitrag }),
+        body: JSON.stringify({ streamer, gruppe_name, message, ziel_betrag, ersteller_name, ersteller_beitrag, names_visible }),
       });
       if (data.checkout_url) {
         window.location.href = data.checkout_url; // → Stripe für Ersteller-Beitrag

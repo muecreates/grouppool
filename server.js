@@ -28,6 +28,51 @@ async function sendTelegram(msg) {
   } catch {}
 }
 
+// ── Email (nodemailer) ──────────────────────────────────────────────────────────
+
+let _mailTransport = null;
+function getMailTransport() {
+  if (_mailTransport !== null) return _mailTransport;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) { _mailTransport = false; return false; }
+  try {
+    const nodemailer = require('nodemailer');
+    _mailTransport = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT) || 587,
+      secure: Number(SMTP_PORT) === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    return _mailTransport;
+  } catch (e) {
+    console.error('[MAIL] nodemailer init failed:', e.message);
+    _mailTransport = false;
+    return false;
+  }
+}
+
+async function sendPayoutEmails(recipients, pool) {
+  const transport = getMailTransport();
+  if (!transport || !recipients.length) return;
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const subject = `GroupPool ausgezahlt: ${pool.gruppe_name} → @${pool.streamer}`;
+  const text =
+    `Dein Pool wurde ausgezahlt! 🎉\n\n` +
+    `Gruppe: ${pool.gruppe_name}\n` +
+    `Streamer: @${pool.streamer}\n` +
+    `Betrag: ${pool.ist_betrag.toFixed(2)} €\n` +
+    `Nachricht: "${pool.message}"\n\n` +
+    `Danke, dass du mitgemacht hast!\n— GroupPool`;
+  for (const to of recipients) {
+    try {
+      await transport.sendMail({ from, to, subject, text });
+      console.log(`[MAIL] Payout notification sent to ${to}`);
+    } catch (e) {
+      console.error(`[MAIL] send to ${to} failed:`, e.message);
+    }
+  }
+}
+
 // ── Twitch ────────────────────────────────────────────────────────────────────
 
 const TWITCH_CLIENT_ID     = process.env.TWITCH_CLIENT_ID || '';
@@ -49,7 +94,7 @@ async function fetchLiveStreamers() {
   if (liveStreamerCache.expires > Date.now()) return liveStreamerCache.streamers;
   const token = await getTwitchToken();
   if (!token) return [];
-  const EXCLUDED_LANGS = new Set(['zh', 'ja', 'ko', 'ar']);
+  const EXCLUDED_LANGS = new Set(['zh', 'ja', 'ko', 'ar']); // verified
   try {
     const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
     const r1 = await fetch('https://api.twitch.tv/helix/streams?first=100', { headers });
@@ -234,9 +279,17 @@ async function triggerPool(poolId) {
 
 async function _runTrigger(poolId) {
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
-  const contributors = await dbAll("SELECT teilnehmer_name FROM contributions WHERE pool_id = ? AND status = 'paid'", [poolId]);
-  const names = contributors.map(c => c.teilnehmer_name).join(', ');
-  const donationMessage = `${pool.gruppe_name}: ${names} — ${pool.message}`;
+  const contributors = await dbAll("SELECT teilnehmer_name, betrag, email FROM contributions WHERE pool_id = ? AND status = 'paid'", [poolId]);
+  // Task 6: donation message format depends on names_visible
+  let donationMessage;
+  if (pool.names_visible) {
+    const parts = contributors.map(c => `${c.teilnehmer_name} (+${Math.round(c.betrag)}€)`).join(', ');
+    donationMessage = `${pool.message} — von: ${parts}`;
+  } else {
+    donationMessage = `${pool.message} — von: ${pool.gruppe_name} (anonym, ${contributors.length} Teilnehmer)`;
+  }
+  // Task 3: collect emails for payout notification
+  const notifyEmails = [...new Set(contributors.map(c => c.email).filter(e => e && e.includes('@')))];
 
   await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['triggered', poolId]);
 
@@ -265,6 +318,8 @@ async function _runTrigger(poolId) {
   )
   .then(async () => {
     await sendTelegram(`✅ <b>GroupPool Bot erfolgreich</b>\nStreamer: @${pool.streamer}\nBetrag: ${pool.ist_betrag.toFixed(2)} €\nPlattform: ${platform}`);
+    // Task 3: notify participants who left an email
+    await sendPayoutEmails(notifyEmails, pool).catch(e => console.error('[MAIL]', e.message));
   })
   .catch(async (err) => {
     if (err.message === 'CAPTCHA_REQUIRED') {
@@ -307,9 +362,10 @@ app.get('/api/pools', async (req, res) => {
 
 // AUFGABE 5: Pool erstellen + Ersteller-Beitrag via Stripe
 app.post('/pool/create', async (req, res) => {
-  const { streamer, ziel_betrag, message, gruppe_name, ersteller_name, ersteller_beitrag } = req.body;
+  const { streamer, ziel_betrag, message, gruppe_name, ersteller_name, ersteller_beitrag, names_visible } = req.body;
   if (!streamer || !ziel_betrag || !message || !gruppe_name)
     return res.status(400).json({ error: 'Fehlende Felder' });
+  const namesVisible = (names_visible === false || names_visible === 0 || names_visible === '0') ? 0 : 1;
   if (Number(ziel_betrag) < 5)
     return res.status(400).json({ error: 'Mindest-Zielbetrag: 5 €' });
   if (Number(ziel_betrag) > 500)
@@ -321,8 +377,8 @@ app.post('/pool/create', async (req, res) => {
 
   // Pool mit status 'pending_creator' anlegen (erst sichtbar nach Ersteller-Zahlung)
   await dbRun(
-    "INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag, status) VALUES (?, ?, ?, ?, ?, 'pending_creator')",
-    [id, streamer, gruppe_name, message, Number(ziel_betrag)]
+    "INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag, names_visible, status) VALUES (?, ?, ?, ?, ?, ?, 'pending_creator')",
+    [id, streamer, gruppe_name, message, Number(ziel_betrag), namesVisible]
   );
 
   // Wenn Ersteller-Beitrag ≥ 1 €: Stripe Checkout
@@ -361,6 +417,16 @@ app.post('/pool/create', async (req, res) => {
   res.status(201).json({ success: true, pool: { id, streamer, gruppe_name, message, ziel_betrag } });
 });
 
+// Task 7: Auszahlungs-Historie (bot_logs) für einen Pool
+app.get('/api/pool/:id/logs', async (req, res) => {
+  try {
+    const logs = await dbAll('SELECT * FROM bot_logs WHERE pool_id = ? ORDER BY timestamp DESC', [req.params.id]);
+    res.json({ logs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/pool/:id', async (req, res) => {
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
   if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
@@ -390,7 +456,7 @@ app.post('/pool/:id/join', async (req, res) => {
 const FEE_RATE = 0.05; // 5%
 
 app.post('/pool/:id/checkout', async (req, res) => {
-  const { teilnehmer_name, betrag } = req.body;
+  const { teilnehmer_name, betrag, email } = req.body;
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
   if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
   if (!teilnehmer_name) return res.status(400).json({ error: 'Name erforderlich' });
@@ -404,9 +470,9 @@ app.post('/pool/:id/checkout', async (req, res) => {
   const cid  = uid();
   const base = process.env.BASE_URL || 'http://localhost:3001';
 
-  // Contribution ohne Fee speichern
-  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'pending')",
-    [cid, pool.id, teilnehmer_name, amount]);
+  // Contribution ohne Fee speichern (mit optionaler E-Mail)
+  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, email, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+    [cid, pool.id, teilnehmer_name, amount, (email && String(email).includes('@')) ? String(email).trim() : null]);
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],

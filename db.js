@@ -37,13 +37,17 @@ function initSqlite() {
       _sqlite.run(`CREATE TABLE IF NOT EXISTS pools (
         id TEXT PRIMARY KEY, streamer TEXT NOT NULL, gruppe_name TEXT NOT NULL,
         message TEXT NOT NULL, ziel_betrag REAL NOT NULL, ist_betrag REAL NOT NULL DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        status TEXT NOT NULL DEFAULT 'open', names_visible INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`);
       _sqlite.run(`CREATE TABLE IF NOT EXISTS contributions (
         id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, teilnehmer_name TEXT NOT NULL,
         betrag REAL NOT NULL, stripe_session TEXT, status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY (pool_id) REFERENCES pools(id)
+        email TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY (pool_id) REFERENCES pools(id)
       )`);
+      // Migrations for pre-existing tables (ignore "duplicate column" errors)
+      _sqlite.run(`ALTER TABLE pools ADD COLUMN names_visible INTEGER NOT NULL DEFAULT 1`, () => {});
+      _sqlite.run(`ALTER TABLE contributions ADD COLUMN email TEXT`, () => {});
       _sqlite.run(`CREATE TABLE IF NOT EXISTS platform_status (
         platform TEXT PRIMARY KEY, healthy INTEGER NOT NULL DEFAULT 1,
         last_check TEXT, last_error TEXT, degraded_since TEXT
@@ -97,13 +101,17 @@ async function initPg() {
   await _pgPool.query(`CREATE TABLE IF NOT EXISTS pools (
     id TEXT PRIMARY KEY, streamer TEXT NOT NULL, gruppe_name TEXT NOT NULL,
     message TEXT NOT NULL, ziel_betrag DOUBLE PRECISION NOT NULL, ist_betrag DOUBLE PRECISION NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'open', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    status TEXT NOT NULL DEFAULT 'open', names_visible INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
   await _pgPool.query(`CREATE TABLE IF NOT EXISTS contributions (
     id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, teilnehmer_name TEXT NOT NULL,
     betrag DOUBLE PRECISION NOT NULL, stripe_session TEXT, status TEXT NOT NULL DEFAULT 'pending',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+  // Migrations for pre-existing tables (PostgreSQL supports IF NOT EXISTS)
+  await _pgPool.query(`ALTER TABLE pools ADD COLUMN IF NOT EXISTS names_visible INTEGER NOT NULL DEFAULT 1`);
+  await _pgPool.query(`ALTER TABLE contributions ADD COLUMN IF NOT EXISTS email TEXT`);
   await _pgPool.query(`CREATE TABLE IF NOT EXISTS platform_status (
     platform TEXT PRIMARY KEY, healthy INTEGER NOT NULL DEFAULT 1,
     last_check TIMESTAMPTZ, last_error TEXT, degraded_since TIMESTAMPTZ

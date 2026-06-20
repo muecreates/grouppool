@@ -6,12 +6,12 @@
 - [x] Task 1: Contribution cap = remaining amount (frontend max + server-side)
 - [x] Task 2: Pool goal min 5€ / max 500€
 
-### Section 2 — New Features
-- [ ] Task 3: Email field + nodemailer payout notification
-- [ ] Task 4/5: names_visible toggle (DB, API, create modal, badge)
-- [ ] Task 6: Donation message format (named vs anonymous)
-- [ ] Task 7: Payout history (bot_logs endpoint + UI)
-- [ ] Task 8: Verify language filter
+### Section 2 — New Features ✅
+- [x] Task 3: Email field + nodemailer payout notification
+- [x] Task 4/5: names_visible toggle (DB, API, create modal, badge)
+- [x] Task 6: Donation message format (named vs anonymous)
+- [x] Task 7: Payout history (bot_logs endpoint + UI)
+- [x] Task 8: Verify language filter
 
 ### Section 3 — UI/UX
 - [ ] Task 9: Info icon tooltips

@@ -49,6 +49,14 @@
     .fee-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .fee-note strong { color: var(--text); }
     .helper-text { font-size: 12px; color: var(--muted); font-style: italic; margin: 2px 0; }
+    .log-list { list-style: none; }
+    .log-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .log-item:last-child { border: none; }
+    .log-top { display: flex; gap: 12px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+    .log-status { font-weight: 700; }
+    .log-platform { color: var(--muted); }
+    .log-time { color: var(--muted); margin-left: auto; font-size: 12px; }
+    .log-msg { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
   </style>
 </head>
 <body>
@@ -149,6 +157,7 @@ function render(pool, contribs) {
         <span>👥 ${contribs.length} Teilnehmer</span>
         <span>📊 ${pct}%</span>
         <span>🕒 ${timeAgo(pool.created_at)}</span>
+        <span>🏷️ Beitragsnamen: ${pool.names_visible ? 'Sichtbar' : 'Anonym'}</span>
         <span>Pool-ID: <code>${esc(pool.id)}</code></span>
       </div>
       <div class="actions" style="margin-top:16px">
@@ -161,7 +170,47 @@ function render(pool, contribs) {
       ${contribHtml}
     </div>
     ${joinSection}
+    <div class="card">
+      <h2>📜 Auszahlungs-Historie</h2>
+      <div id="logsBox"><p style="color:var(--muted);font-size:13px"><span class="spinner"></span></p></div>
+    </div>
   `;
+  loadLogs();
+}
+
+function fmtDateTime(s) {
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return s; }
+}
+
+async function loadLogs() {
+  const box = document.getElementById('logsBox');
+  if (!box) return;
+  try {
+    const res = await fetch(`/api/pool/${poolId}/logs`);
+    const { logs } = await res.json();
+    if (!logs || !logs.length) {
+      box.innerHTML = '<p style="color:var(--muted);font-size:13px">Noch keine Auszahlungsversuche.</p>';
+      return;
+    }
+    const color = { success: 'var(--green)', error: 'var(--red)', captcha: '#ff9800' };
+    box.innerHTML = `<ul class="log-list">${logs.map(l => {
+      const c = color[l.status] || 'var(--muted)';
+      return `<li class="log-item">
+        <div class="log-top">
+          <span class="log-status" style="color:${c}">● ${esc(l.status || '—')}</span>
+          <span class="log-platform">${esc(l.platform || '—')}</span>
+          <span class="log-time">${esc(fmtDateTime(l.timestamp))}</span>
+        </div>
+        ${l.message ? `<div class="log-msg">${esc(l.message)}</div>` : ''}
+      </li>`;
+    }).join('')}</ul>`;
+  } catch (e) {
+    box.innerHTML = `<p style="color:var(--muted);font-size:13px">Historie konnte nicht geladen werden.</p>`;
+  }
 }
 
 function updateFee() {
