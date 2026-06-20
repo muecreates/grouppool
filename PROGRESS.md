@@ -13,10 +13,10 @@
 - [x] Task 7: Payout history (bot_logs endpoint + UI)
 - [x] Task 8: Verify language filter
 
-### Section 3 — UI/UX
-- [ ] Task 9: Info icon tooltips
-- [ ] Task 10: Helper text in Mitmachen
-- [ ] Task 11/12: Inline pools + progress bars + streamer pool badge
+### Section 3 — UI/UX ✅
+- [x] Task 9: Info icon tooltips (title, fee, goal, names toggle)
+- [x] Task 10: Helper text in Mitmachen
+- [x] Task 11/12: Active/closed pool sections + streamer "Pool aktiv" badge
 
 ### Section 4 — Performance
 - [ ] Task 13-16: Cache headers, lazy images, CSS cleanup

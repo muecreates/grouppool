@@ -57,6 +57,17 @@
     .log-platform { color: var(--muted); }
     .log-time { color: var(--muted); margin-left: auto; font-size: 12px; }
     .log-msg { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+    .tooltip { position: relative; cursor: help; display: inline-block; }
+    .tooltip::after {
+      content: attr(data-tip);
+      position: absolute; left: 50%; bottom: 130%; transform: translateX(-50%);
+      background: #000; color: #fff; padding: 8px 10px; border-radius: 6px;
+      font-size: 12px; font-weight: 400; line-height: 1.4; white-space: normal;
+      width: 220px; text-align: left; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+      border: 1px solid var(--border); opacity: 0; pointer-events: none;
+      transition: opacity .15s; z-index: 1000;
+    }
+    .tooltip:hover::after { opacity: 1; }
   </style>
 </head>
 <body>
@@ -122,7 +133,7 @@ function render(pool, contribs) {
       <div class="join-form">
         <div class="field"><label>Dein Name</label><input id="j-name" placeholder="Dein Twitch-Name"></div>
         <div class="field">
-          <label>Betrag (€)</label>
+          <label>Betrag (€) <span class="tooltip" data-tip="Die 5% Servicegebühr deckt Zahlungsabwicklung und Betrieb der Plattform.">ℹ️</span></label>
           <input id="j-betrag" type="number" min="1" max="${remaining}" step="1" placeholder="10" oninput="updateFee()">
           <div class="fee-note" id="fee-note">Mindestbetrag: 1 € · Noch ${remaining.toFixed(2)} € bis zum Ziel</div>
         </div>
@@ -149,7 +160,7 @@ function render(pool, contribs) {
       <div class="progress-wrap">
         <div class="progress-label">
           <span><strong>${pool.ist_betrag.toFixed(2)} €</strong> gesammelt</span>
-          <span>Ziel: <strong>${pool.ziel_betrag.toFixed(2)} €</strong></span>
+          <span>Ziel: <strong>${pool.ziel_betrag.toFixed(2)} €</strong> <span class="tooltip" data-tip="Sobald das Ziel erreicht ist, wird automatisch eine Donation an den Streamer gesendet.">ℹ️</span></span>
         </div>
         <div class="progress-bar"><div class="progress-fill ${done?'done':''}" style="width:${pct}%"></div></div>
       </div>

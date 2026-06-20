@@ -65,6 +65,7 @@
     .stream-viewers { font-size: 12px; color: var(--red); font-weight: 700; display: flex; align-items: center; gap: 5px; }
     .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); display: inline-block; }
     .stream-select-btn { width: 100%; margin-top: 10px; }
+    .pool-active-badge { display: inline-block; font-size: 10px; font-weight: 800; background: var(--green); color: #003a1a; border-radius: 100px; padding: 2px 7px; margin-left: 6px; vertical-align: middle; }
 
     /* ── Pool grid ── */
     .pool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
@@ -148,7 +149,7 @@
 <body>
 
 <header>
-  <div class="logo">🎯 Group<span>Pool</span></div>
+  <div class="logo">🎯 Group<span>Pool</span> <span class="tooltip" data-tip="Ein Pool sammelt Beiträge mehrerer Teilnehmer für eine gemeinsame Donation an einen Streamer." style="font-size:14px">ℹ️</span></div>
   <div style="display:flex;gap:8px;align-items:center;">
     <span id="refreshTimer" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn btn-sm btn-outline" onclick="reload()">↻ Aktualisieren</button>
@@ -180,10 +181,15 @@
       <div class="section-title">Aktive Spenden-Pools</div>
       <button class="btn btn-sm" onclick="showCreateModal()">+ Neuer Pool</button>
     </div>
+    <div id="activePoolsHead" class="section-title" style="font-size:15px;margin-bottom:12px;display:none">🟢 Aktive Pools</div>
     <div id="poolGrid" class="pool-grid">
       <div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--muted)">
         <div class="spinner"></div> Pools laden…
       </div>
+    </div>
+    <div id="closedPoolsWrap" style="margin-top:28px;display:none">
+      <button id="closedToggle" class="btn btn-sm btn-outline" onclick="toggleClosedPools()" style="margin-bottom:14px">▸ Abgeschlossene Pools (<span id="closedCount">0</span>)</button>
+      <div id="closedPoolGrid" class="pool-grid" style="display:none"></div>
     </div>
   </div>
 </div>
@@ -208,7 +214,7 @@
       <textarea id="c-message" placeholder="Eure Nachricht an den Streamer…"></textarea>
     </div>
     <div class="field">
-      <label>Zielbetrag (€)</label>
+      <label>Zielbetrag (€) <span class="tooltip" data-tip="Sobald das Ziel erreicht ist, wird automatisch eine Donation an den Streamer gesendet.">ℹ️</span></label>
       <input id="c-ziel" type="number" min="5" max="500" step="1" placeholder="50">
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Min. 5 € · Max. 500 €</div>
     </div>
@@ -250,7 +256,7 @@
       <input id="j-name" type="text" placeholder="Dein Twitch-Name">
     </div>
     <div class="field">
-      <label>Betrag (€)</label>
+      <label>Betrag (€) <span class="tooltip" data-tip="Die 5% Servicegebühr deckt Zahlungsabwicklung und Betrieb der Plattform.">ℹ️</span></label>
       <input id="j-betrag" type="number" min="1" step="1" placeholder="10">
     </div>
     <div id="joinContribs" style="margin-top:4px;margin-bottom:8px;"></div>
@@ -310,18 +316,23 @@
       grid.innerHTML = '<div style="grid-column:1/-1" class="empty"><div class="empty-icon">📺</div><p>Keine Live-Streams gefunden.</p></div>';
       return;
     }
+    const activeStreamers = new Set(
+      pools.filter(p => p.status === 'open' || p.status === 'pending_creator')
+           .map(p => p.streamer.toLowerCase())
+    );
     grid.innerHTML = streams.map(s => {
       const thumb = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${s.user_login}-320x180.jpg`;
       const viewers = s.viewer_count >= 1000
         ? (s.viewer_count / 1000).toFixed(1) + 'K'
         : s.viewer_count;
+      const hasPool = activeStreamers.has(s.user_login.toLowerCase());
       return `
         <div class="stream-card" onclick="selectStream('${esc(s.user_login)}', '${esc(s.user_name)}')">
-          <img class="stream-thumb" src="${thumb}" alt="${esc(s.user_name)}"
+          <img class="stream-thumb" src="${thumb}" alt="${esc(s.user_name)}" loading="lazy" width="320" height="180"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
           <div class="stream-thumb-placeholder" style="display:none">🎮</div>
           <div class="stream-body">
-            <div class="stream-name">${esc(s.user_name)}</div>
+            <div class="stream-name">${esc(s.user_name)}${hasPool ? '<span class="pool-active-badge">Pool aktiv</span>' : ''}</div>
             <div class="stream-title">${esc(s.title || '—')}</div>
             <div class="stream-viewers"><span class="live-dot"></span>${viewers} Zuschauer</div>
             <button class="btn btn-sm stream-select-btn">+ Pool starten</button>
@@ -346,14 +357,62 @@
     }
   }
 
+  function poolCardHtml(p) {
+    const pct = Math.min(100, Math.round((p.ist_betrag / p.ziel_betrag) * 100));
+    const done = p.ist_betrag >= p.ziel_betrag;
+    const isOpen = p.status === 'open' || p.status === 'pending_creator';
+    const statusLabel = { open: 'Offen', pending_creator: 'Offen', triggered: 'Ausgelöst!', closed: 'Geschlossen', expired: 'Abgelaufen', captcha_required: '⚠ Manuelle Zahlung' }[p.status] || p.status;
+    const statusCls   = { open: '', triggered: 'triggered', captcha_required: 'captcha' }[p.status] || 'triggered';
+    const captchaInfo = p.status === 'captcha_required'
+      ? `<div class="captcha-admin-info">🔒 CAPTCHA blockiert Bot — manuelle Zahlung nötig<br>Pool-ID: <code>${esc(p.id)}</code> · Betrag: <strong>${p.ist_betrag.toFixed(2)} €</strong></div>`
+      : '';
+    return `
+      <div class="pool-card">
+        <div class="pool-card-head">
+          <div>
+            <div class="pool-streamer">@${esc(p.streamer)}${p.is_live ? '<span class="live-badge">● LIVE</span>' : ''}</div>
+            <div class="pool-gruppe">${esc(p.gruppe_name)}</div>
+          </div>
+          <span class="pool-status ${statusCls}">${statusLabel}</span>
+        </div>
+        <div class="pool-msg">"${esc(p.message)}"</div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span><strong>${p.ist_betrag.toFixed(2)} €</strong> gesammelt</span>
+            <span>Ziel: <strong>${p.ziel_betrag.toFixed(2)} €</strong></span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill ${done ? 'done' : ''}" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="pool-meta">
+          <span>👥 ${p.contributor_count || 0} Teilnehmer</span>
+          <span>📊 ${pct}%</span>
+        </div>
+        ${captchaInfo}
+        <div class="pool-actions">
+          ${isOpen
+            ? `<button class="btn btn-sm btn-green" onclick="showJoinModal('${p.id}')">💸 Mitmachen</button>`
+            : `<button class="btn btn-sm btn-outline" disabled>Beendet</button>`}
+          <a class="btn btn-sm btn-outline" href="/pool.html?id=${p.id}">Details →</a>
+        </div>
+      </div>`;
+  }
+
   function renderPools() {
     const grid = document.getElementById('poolGrid');
     const badge = document.getElementById('poolCountBadge');
-    const open = pools.filter(p => p.status === 'open' || p.status === 'pending_creator');
+    const open   = pools.filter(p => p.status === 'open' || p.status === 'pending_creator');
+    const closed = pools.filter(p => !(p.status === 'open' || p.status === 'pending_creator'));
     badge.textContent = open.length;
     badge.style.display = open.length ? 'inline' : 'none';
 
+    // Streamer cards may now show "Pool aktiv" badge — re-render streams
+    renderStreams();
+
     if (!pools.length) {
+      document.getElementById('activePoolsHead').style.display = 'none';
+      document.getElementById('closedPoolsWrap').style.display = 'none';
       grid.innerHTML = `<div style="grid-column:1/-1" class="empty">
         <div class="empty-icon">💰</div>
         <p>Noch keine Pools. Erstelle den ersten!</p>
@@ -361,47 +420,29 @@
       return;
     }
 
-    grid.innerHTML = pools.map(p => {
-      const pct = Math.min(100, Math.round((p.ist_betrag / p.ziel_betrag) * 100));
-      const done = p.ist_betrag >= p.ziel_betrag;
-      const isOpen = p.status === 'open' || p.status === 'pending_creator';
-      const statusLabel = { open: 'Offen', pending_creator: 'Offen', triggered: 'Ausgelöst!', closed: 'Geschlossen', captcha_required: '⚠ Manuelle Zahlung' }[p.status] || p.status;
-      const statusCls   = { open: '', triggered: 'triggered', captcha_required: 'captcha' }[p.status] || 'triggered';
-      const captchaInfo = p.status === 'captcha_required'
-        ? `<div class="captcha-admin-info">🔒 CAPTCHA blockiert Bot — manuelle Zahlung nötig<br>Pool-ID: <code>${esc(p.id)}</code> · Betrag: <strong>${p.ist_betrag.toFixed(2)} €</strong></div>`
-        : '';
-      return `
-        <div class="pool-card">
-          <div class="pool-card-head">
-            <div>
-              <div class="pool-streamer">@${esc(p.streamer)}${p.is_live ? '<span class="live-badge">● LIVE</span>' : ''}</div>
-              <div class="pool-gruppe">${esc(p.gruppe_name)}</div>
-            </div>
-            <span class="pool-status ${statusCls}">${statusLabel}</span>
-          </div>
-          <div class="pool-msg">"${esc(p.message)}"</div>
-          <div class="progress-wrap">
-            <div class="progress-label">
-              <span><strong>${p.ist_betrag.toFixed(2)} €</strong> gesammelt</span>
-              <span>Ziel: <strong>${p.ziel_betrag.toFixed(2)} €</strong></span>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill ${done ? 'done' : ''}" style="width:${pct}%"></div>
-            </div>
-          </div>
-          <div class="pool-meta">
-            <span>👥 ${p.contributor_count || 0} Teilnehmer</span>
-            <span>📊 ${pct}%</span>
-          </div>
-          ${captchaInfo}
-          <div class="pool-actions">
-            ${isOpen
-              ? `<button class="btn btn-sm btn-green" onclick="showJoinModal('${p.id}')">💸 Mitmachen</button>`
-              : `<button class="btn btn-sm btn-outline" disabled>Beendet</button>`}
-            <a class="btn btn-sm btn-outline" href="/pool.html?id=${p.id}">Details →</a>
-          </div>
-        </div>`;
-    }).join('');
+    // Active pools
+    document.getElementById('activePoolsHead').style.display = open.length ? 'block' : 'none';
+    grid.innerHTML = open.length
+      ? open.map(poolCardHtml).join('')
+      : `<div style="grid-column:1/-1" class="empty"><div class="empty-icon">💰</div><p>Keine aktiven Pools — erstelle einen!</p></div>`;
+
+    // Closed pools (collapsible)
+    const wrap = document.getElementById('closedPoolsWrap');
+    if (closed.length) {
+      wrap.style.display = 'block';
+      document.getElementById('closedCount').textContent = closed.length;
+      document.getElementById('closedPoolGrid').innerHTML = closed.map(poolCardHtml).join('');
+    } else {
+      wrap.style.display = 'none';
+    }
+  }
+
+  function toggleClosedPools() {
+    const g = document.getElementById('closedPoolGrid');
+    const t = document.getElementById('closedToggle');
+    const open = g.style.display !== 'none';
+    g.style.display = open ? 'none' : 'grid';
+    t.innerHTML = (open ? '▸' : '▾') + ` Abgeschlossene Pools (<span id="closedCount">${pools.filter(p => !(p.status === 'open' || p.status === 'pending_creator')).length}</span>)`;
   }
 
   /* ─── Create pool ────────────────────────────────────────────────────────── */
