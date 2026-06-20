@@ -757,6 +757,20 @@ initDb().then(() => {
       streamers.slice(0, 20).forEach(s => resolveDonationUrl(s.user_login).catch(() => {}));
       console.log(`[STARTUP] Pre-caching ${Math.min(20, streamers.length)} Streamer-Links...`);
     } catch {}
+    // Recover open pools that reached their goal before this restart (lost from in-memory queue)
+    try {
+      const strandedPools = await dbAll(
+        "SELECT id, streamer, ist_betrag, ziel_betrag FROM pools WHERE status = 'open' AND ist_betrag >= ziel_betrag"
+      );
+      if (strandedPools.length) {
+        console.log(`[STARTUP] ${strandedPools.length} Pool(s) haben Ziel erreicht — triggere nach Neustart`);
+        for (const p of strandedPools) {
+          console.log(`[STARTUP] Recovery-Trigger: Pool ${p.id} (@${p.streamer} ${p.ist_betrag}€/${p.ziel_betrag}€)`);
+          triggerPool(p.id).catch(e => console.error('[STARTUP] Recovery-Fehler:', e.message));
+        }
+      }
+    } catch (e) { console.error('[STARTUP] Recovery-Scan fehlgeschlagen:', e.message); }
+
     try { require('./monitor').start(null, dbGet, dbAll, dbRun, sendTelegram, fetchLiveStreamers); }
     catch (e) { console.error('[MONITOR] Start-Fehler:', e.message); }
     // AUFGABE 4: Pool-Ablauf alle 30 Minuten prüfen
