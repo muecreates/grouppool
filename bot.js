@@ -211,20 +211,49 @@ async function typeIntoFrame(frames, urlFragment, value, label) {
 }
 
 async function fillPayPalCardFields(cardFieldsFrame) {
-  // Give nested sub-iframes time to render after card button click
   await cardFieldsFrame.waitForTimeout(3000);
 
-  // Collect all frames reachable from the card-fields parent frame
-  const allFrames = cardFieldsFrame.childFrames ? cardFieldsFrame.childFrames() : [];
-  console.log(`[BOT] card-fields sub-frames: ${allFrames.length} (${allFrames.map(f => f.url?.().split('?')[0]).join(', ')})`);
+  // Diagnose: log all inputs in the frame so we know their names/selectors
+  try {
+    const inputs = await cardFieldsFrame.$$eval('input', els =>
+      els.map(e => ({ name: e.name, id: e.id, type: e.type, placeholder: e.placeholder, autocomplete: e.autocomplete }))
+    );
+    console.log('[BOT] card-fields inputs:', JSON.stringify(inputs));
+  } catch (e) { console.log('[BOT] input-scan Fehler:', e.message); }
 
-  await typeIntoFrame(allFrames, 'type=number',   CARD.number, 'card_number');
-  await typeIntoFrame(allFrames, 'type=expiry',   CARD.expiry, 'card_expiry');
-  await typeIntoFrame(allFrames, 'type=cvv',      CARD.cvv,    'card_cvv');
-  await typeIntoFrame(allFrames, 'type=name',
-    `${CARD.firstName} ${CARD.lastName}`,          'card_name');
+  // PayPal card-fields renders inputs directly in this frame (not sub-iframes).
+  // Try the canonical PayPal inline-fields selectors first, then fallbacks.
+  const fillField = async (selectors, value, label) => {
+    for (const sel of selectors) {
+      const loc = cardFieldsFrame.locator(sel).first();
+      if (await loc.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await loc.click();
+        await loc.fill('');
+        await cardFieldsFrame.keyboard.type(value, { delay: 80 });
+        console.log(`[BOT] ${label} → "${value}" ✓`);
+        return;
+      }
+    }
+    console.log(`[BOT] ${label} – Feld nicht gefunden`);
+  };
 
-  // Name/postal fields may also be in the parent card-fields frame itself
+  await fillField(
+    ['input[name="number"]', 'input[autocomplete="cc-number"]', 'input[id*="card-number"]', 'input[placeholder*="ard"]'],
+    CARD.number, 'card_number'
+  );
+  await fillField(
+    ['input[name="expiry"]', 'input[name="expiration"]', 'input[autocomplete="cc-exp"]', 'input[id*="expir"]', 'input[placeholder*="MM"]'],
+    CARD.expiry, 'card_expiry'
+  );
+  await fillField(
+    ['input[name="cvv"]', 'input[name="cvc"]', 'input[autocomplete="cc-csc"]', 'input[id*="cvv"]', 'input[placeholder*="CVV"]', 'input[placeholder*="CVC"]'],
+    CARD.cvv, 'card_cvv'
+  );
+  await fillField(
+    ['input[name="name"]', 'input[name="cardName"]', 'input[autocomplete="cc-name"]', 'input[id*="card-name"]'],
+    `${CARD.firstName} ${CARD.lastName}`, 'card_name'
+  );
+
   await fillIfVisible(cardFieldsFrame, 'input[name="firstName"]',  CARD.firstName, 'firstName');
   await fillIfVisible(cardFieldsFrame, 'input[name="lastName"]',   CARD.lastName,  'lastName');
   await fillIfVisible(cardFieldsFrame, 'input[name="postalCode"]', CARD.plz,       'postalCode');
@@ -392,7 +421,7 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     await fillPayPalCardFields(formCtx);
   }
 
-  await checkCaptcha(formCtx);
+  await checkCaptcha(ppCtx); // checkCaptcha needs a Page, not a Frame
 
   // Submit button may be in the card-fields frame or on the main Streamlabs page
   const SUBMIT_SEL = 'button:has-text("Pay Now"), button:has-text("Pay"), button:has-text("Confirm"), button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Continue")';
