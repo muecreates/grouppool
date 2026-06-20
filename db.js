@@ -17,7 +17,15 @@ let _sqlite = null;
 
 function initSqlite() {
   const sqlite3  = require('sqlite3').verbose();
+  const fs       = require('fs');
+  const pathMod  = require('path');
   const DB_PATH  = process.env.DATABASE_PATH || './grouppool.db';
+  // Ensure parent directory exists (needed for Railway /data/ volume)
+  const dir = pathMod.dirname(DB_PATH);
+  if (dir !== '.' && !fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`[DB] Created directory: ${dir}`);
+  }
   console.log(`[DB] SQLite mode — ${DB_PATH}`);
   _sqlite = new sqlite3.Database(DB_PATH, (err) => {
     if (err) console.error('[DB] SQLite open error:', err.message);
