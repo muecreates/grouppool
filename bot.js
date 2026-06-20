@@ -213,51 +213,39 @@ async function typeIntoFrame(frames, urlFragment, value, label) {
 async function fillPayPalCardFields(cardFieldsFrame) {
   await cardFieldsFrame.waitForTimeout(3000);
 
-  // Diagnose: log all inputs in the frame so we know their names/selectors
-  try {
-    const inputs = await cardFieldsFrame.$$eval('input', els =>
-      els.map(e => ({ name: e.name, id: e.id, type: e.type, placeholder: e.placeholder, autocomplete: e.autocomplete }))
-    );
-    console.log('[BOT] card-fields inputs:', JSON.stringify(inputs));
-  } catch (e) { console.log('[BOT] input-scan Fehler:', e.message); }
-
-  // PayPal card-fields renders inputs directly in this frame (not sub-iframes).
-  // Try the canonical PayPal inline-fields selectors first, then fallbacks.
-  const fillField = async (selectors, value, label) => {
-    for (const sel of selectors) {
-      const loc = cardFieldsFrame.locator(sel).first();
-      if (await loc.isVisible({ timeout: 2_000 }).catch(() => false)) {
-        await loc.click();
-        await loc.fill('');
-        await cardFieldsFrame.keyboard.type(value, { delay: 80 });
-        console.log(`[BOT] ${label} → "${value}" ✓`);
-        return;
-      }
+  // Exact field names from PayPal's card-fields iframe (confirmed via diagnostic run):
+  // cardnumber, expiry-date, credit-card-security, givenName, familyName,
+  // line1, city, postcode, phone, email
+  const typeIn = async (name, value, label) => {
+    const loc = cardFieldsFrame.locator(`input[name="${name}"]`).first();
+    if (!await loc.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      console.log(`[BOT] ${label} – nicht sichtbar`); return;
     }
-    console.log(`[BOT] ${label} – Feld nicht gefunden`);
+    await loc.click();
+    await loc.fill('');
+    await cardFieldsFrame.keyboard.type(value, { delay: 60 });
+    console.log(`[BOT] ${label} → "${value}" ✓`);
   };
 
-  await fillField(
-    ['input[name="number"]', 'input[autocomplete="cc-number"]', 'input[id*="card-number"]', 'input[placeholder*="ard"]'],
-    CARD.number, 'card_number'
-  );
-  await fillField(
-    ['input[name="expiry"]', 'input[name="expiration"]', 'input[autocomplete="cc-exp"]', 'input[id*="expir"]', 'input[placeholder*="MM"]'],
-    CARD.expiry, 'card_expiry'
-  );
-  await fillField(
-    ['input[name="cvv"]', 'input[name="cvc"]', 'input[autocomplete="cc-csc"]', 'input[id*="cvv"]', 'input[placeholder*="CVV"]', 'input[placeholder*="CVC"]'],
-    CARD.cvv, 'card_cvv'
-  );
-  await fillField(
-    ['input[name="name"]', 'input[name="cardName"]', 'input[autocomplete="cc-name"]', 'input[id*="card-name"]'],
-    `${CARD.firstName} ${CARD.lastName}`, 'card_name'
-  );
+  const phone = process.env.CARD_PHONE || '01512345678';
+  await typeIn('cardnumber',            CARD.number,                    'card_number');
+  await typeIn('expiry-date',           CARD.expiry,                    'card_expiry');
+  await typeIn('credit-card-security',  CARD.cvv,                       'card_cvv');
+  await typeIn('givenName',             CARD.firstName,                 'firstName');
+  await typeIn('familyName',            CARD.lastName,                  'lastName');
+  await typeIn('line1',                 CARD.address,                   'address');
+  await typeIn('city',                  CARD.city,                      'city');
+  await typeIn('postcode',              CARD.plz,                       'postcode');
+  await typeIn('phone',                 phone,                          'phone');
+  await typeIn('email',                 CARD.email,                     'email');
 
-  await fillIfVisible(cardFieldsFrame, 'input[name="firstName"]',  CARD.firstName, 'firstName');
-  await fillIfVisible(cardFieldsFrame, 'input[name="lastName"]',   CARD.lastName,  'lastName');
-  await fillIfVisible(cardFieldsFrame, 'input[name="postalCode"]', CARD.plz,       'postalCode');
-  await fillIfVisible(cardFieldsFrame, 'input[name="email"]',      CARD.email,     'email');
+  // Uncheck "ship to billing address" if present (avoids extra address form)
+  const shipBox = cardFieldsFrame.locator('input[name="shipToBillingAddress"]').first();
+  if (await shipBox.isVisible({ timeout: 1_000 }).catch(() => false) &&
+      await shipBox.isChecked().catch(() => false)) {
+    await shipBox.uncheck();
+    console.log('[BOT] shipToBillingAddress deaktiviert ✓');
+  }
 }
 
 // ── TipeeeStream ──────────────────────────────────────────────────────────────
