@@ -49,13 +49,16 @@ async function fetchLiveStreamers() {
   if (liveStreamerCache.expires > Date.now()) return liveStreamerCache.streamers;
   const token = await getTwitchToken();
   if (!token) return [];
+  const EXCLUDED_LANGS = new Set(['zh', 'ja', 'ko', 'ar']);
   try {
     const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
     const r1 = await fetch('https://api.twitch.tv/helix/streams?first=100', { headers });
     const d1 = await r1.json();
-    const streamers = (d1.data || []).map(s => ({
-      user_name: s.user_name, user_login: s.user_login, viewer_count: s.viewer_count, title: s.title
-    }));
+    const streamers = (d1.data || [])
+      .filter(s => !EXCLUDED_LANGS.has(s.language))
+      .map(s => ({
+        user_name: s.user_name, user_login: s.user_login, viewer_count: s.viewer_count, title: s.title
+      }));
     liveStreamerCache = { streamers, expires: Date.now() + 5 * 60_000 };
     return streamers;
   } catch { return liveStreamerCache.streamers; }
@@ -193,11 +196,17 @@ async function resolveDonationUrl(streamer) {
     console.log(`[RESOLVE] StreamElements: ${seUrl}`); return seUrl;
   }
 
-  // 5. TipeeeStream Fallback
+  // 5. TipeeeStream — validate before using (streamer may not have an account)
   const tipeeeUrl = `https://www.tipeeestream.com/${streamer}/donation`;
-  await setCachedLink(streamer, 'tipeeestream', tipeeeUrl);
-  console.log(`[RESOLVE] TipeeeStream-Fallback: ${tipeeeUrl}`);
-  return tipeeeUrl;
+  if (await checkUrlValid(tipeeeUrl, 'pseudo')) {
+    await setCachedLink(streamer, 'tipeeestream', tipeeeUrl);
+    console.log(`[RESOLVE] TipeeeStream: ${tipeeeUrl}`);
+    return tipeeeUrl;
+  }
+
+  // 6. No valid donation link found
+  console.log(`[RESOLVE] Kein Donation-Link für @${streamer} gefunden — alle Plattformen geprüft`);
+  return null;
 }
 
 // ── Pool Queue ────────────────────────────────────────────────────────────────
@@ -232,6 +241,16 @@ async function _runTrigger(poolId) {
   await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['triggered', poolId]);
 
   const donationUrl = await resolveDonationUrl(pool.streamer);
+  if (!donationUrl) {
+    const msg = `Kein Donation-Link für @${pool.streamer} gefunden — Pool wird nicht ausgelöst`;
+    console.error(`[TRIGGER] ${msg}`);
+    await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['captcha_required', poolId]);
+    await dbRun('INSERT INTO bot_logs (id, pool_id, platform, status, message) VALUES (?, ?, ?, ?, ?)',
+      [uid(), poolId, 'unknown', 'error', msg]);
+    await sendTelegram(`❌ <b>Kein Donation-Link</b>\nPool: <code>${poolId}</code>\nStreamer: @${pool.streamer}\n${msg}`);
+    processNextInQueue();
+    return;
+  }
   const platform = donationUrl.includes('streamlabs') ? 'streamlabs' : donationUrl.includes('streamelements') ? 'streamelements' : 'tipeeestream';
   console.log(`[TRIGGER] ${poolId} → ${donationUrl}`);
 
@@ -531,6 +550,7 @@ app.get('/streamer/:name', async (req, res) => {
     }
     // Scrapen
     const donationUrl = await resolveDonationUrl(name);
+    if (!donationUrl) return res.status(404).json({ error: `Kein Donation-Link für @${name} gefunden` });
     const platform = donationUrl.includes('streamlabs') ? 'streamlabs' : donationUrl.includes('streamelements') ? 'streamelements' : 'tipeeestream';
     res.json({ streamer: name, platform, donationUrl, cached: false });
   } catch (e) {
