@@ -279,18 +279,63 @@ app.get('/api/pools', async (req, res) => {
     SELECT p.*, COUNT(CASE WHEN c.status = 'paid' THEN 1 END) AS contributor_count
     FROM pools p LEFT JOIN contributions c ON c.pool_id = p.id
     GROUP BY p.id ORDER BY p.created_at DESC`);
-  res.json({ pools });
+  // AUFGABE 3: Live-Status aus Cache anhängen
+  const liveSet = new Set(liveStreamerCache.streamers.map(s => s.user_login.toLowerCase()));
+  const enriched = pools.map(p => ({ ...p, is_live: liveSet.has(p.streamer.toLowerCase()) }));
+  res.json({ pools: enriched });
 });
 
+// AUFGABE 5: Pool erstellen + Ersteller-Beitrag via Stripe
 app.post('/pool/create', async (req, res) => {
-  const { streamer, ziel_betrag, message, gruppe_name } = req.body;
+  const { streamer, ziel_betrag, message, gruppe_name, ersteller_name, ersteller_beitrag } = req.body;
   if (!streamer || !ziel_betrag || !message || !gruppe_name)
     return res.status(400).json({ error: 'Fehlende Felder' });
   if (Number(ziel_betrag) < 1)
-    return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
-  const id = uid();
-  await dbRun('INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag) VALUES (?, ?, ?, ?, ?)',
-    [id, streamer, gruppe_name, message, Number(ziel_betrag)]);
+    return res.status(400).json({ error: 'Mindest-Zielbetrag: 1 €' });
+
+  const beitrag = Number(ersteller_beitrag) || 0;
+  const base    = process.env.BASE_URL || 'http://localhost:3001';
+  const id      = uid();
+
+  // Pool mit status 'pending_creator' anlegen (erst sichtbar nach Ersteller-Zahlung)
+  await dbRun(
+    "INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag, status) VALUES (?, ?, ?, ?, ?, 'pending_creator')",
+    [id, streamer, gruppe_name, message, Number(ziel_betrag)]
+  );
+
+  // Wenn Ersteller-Beitrag ≥ 1 €: Stripe Checkout
+  if (ersteller_name && beitrag >= 1) {
+    const amountWithFee = Math.round(beitrag * (1 + FEE_RATE) * 100);
+    const cid = uid();
+    await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'pending')",
+      [cid, id, ersteller_name, beitrag]);
+    try {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'eur',
+            product_data: { name: `GroupPool erstellen: ${gruppe_name} → @${streamer}`, description: 'Dein Starter-Beitrag (inkl. 5% Gebühr)' },
+            unit_amount: amountWithFee,
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: `${base}/pool.html?id=${id}&success=1`,
+        cancel_url:  `${base}/?cancel=1`,
+        metadata: { pool_id: id, teilnehmer_name: ersteller_name, contrib_id: cid, betrag_original: String(beitrag), is_creator: 'true' },
+      });
+      await dbRun('UPDATE contributions SET stripe_session = ? WHERE id = ?', [session.id, cid]);
+      return res.status(201).json({ success: true, pool: { id, streamer, gruppe_name, message, ziel_betrag }, checkout_url: session.url });
+    } catch (err) {
+      await dbRun('DELETE FROM pools WHERE id = ?', [id]);
+      await dbRun('DELETE FROM contributions WHERE id = ?', [cid]);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // Kein Beitrag: Pool sofort 'open' (Rückwärtskompatibilität für Tests via /pool/create ohne Beitrag)
+  await dbRun("UPDATE pools SET status = 'open' WHERE id = ?", [id]);
   res.status(201).json({ success: true, pool: { id, streamer, gruppe_name, message, ziel_betrag } });
 });
 
@@ -389,6 +434,11 @@ app.post('/webhook/stripe', async (req, res) => {
             [cid, poolId, teilnehmer, betrag, session.id]);
         }
         await dbRun('UPDATE pools SET ist_betrag = ist_betrag + ? WHERE id = ?', [betrag, poolId]);
+        // AUFGABE 5: Ersteller-Zahlung aktiviert den Pool
+        if (session.metadata?.is_creator === 'true') {
+          await dbRun("UPDATE pools SET status = 'open' WHERE id = ? AND status = 'pending_creator'", [poolId]);
+          console.log(`[WEBHOOK] Pool ${poolId} durch Ersteller-Zahlung aktiviert`);
+        }
         const updated = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
         if (updated?.status === 'open' && updated.ist_betrag >= updated.ziel_betrag) await triggerPool(poolId);
       } catch (err) {
@@ -493,6 +543,44 @@ app.get('/streamer.html', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
+// ── Pool-Ablauf (AUFGABE 4) ────────────────────────────────────────────────────
+
+async function expireOldPools() {
+  const expired = await dbAll(
+    "SELECT * FROM pools WHERE status = 'open' AND created_at < datetime('now', '-24 hours')"
+  );
+  for (const pool of expired) {
+    console.log(`[EXPIRE] Pool ${pool.id} abgelaufen — initiiere Refunds...`);
+    await dbRun("UPDATE pools SET status = 'expired' WHERE id = ?", [pool.id]);
+
+    const contribs = await dbAll(
+      "SELECT * FROM contributions WHERE pool_id = ? AND status = 'paid' AND stripe_session IS NOT NULL",
+      [pool.id]
+    );
+    for (const c of contribs) {
+      try {
+        const refund = await stripe.refunds.create({ payment_intent: c.stripe_session }).catch(async () => {
+          // stripe_session might be a checkout session ID, try to get payment_intent
+          const session = await stripe.checkout.sessions.retrieve(c.stripe_session);
+          return stripe.refunds.create({ payment_intent: session.payment_intent });
+        });
+        await dbRun("UPDATE contributions SET status = 'refunded' WHERE id = ?", [c.id]);
+        console.log(`[REFUND] ${c.id} → ${refund.id}`);
+      } catch (e) {
+        console.error(`[REFUND] Fehler für ${c.id}:`, e.message);
+      }
+    }
+
+    const totalRefunded = contribs.reduce((s, c) => s + c.betrag, 0);
+    await sendTelegram(
+      `⏰ <b>Pool abgelaufen</b>\nPool: <code>${pool.id}</code>\nStreamer: @${pool.streamer}\n` +
+      `Gesammelt: ${pool.ist_betrag.toFixed(2)} € / ${pool.ziel_betrag.toFixed(2)} €\n` +
+      `Refunds: ${contribs.length} Beiträge (${totalRefunded.toFixed(2)} €) zurückgezahlt`
+    );
+  }
+  if (expired.length) console.log(`[EXPIRE] ${expired.length} Pools abgelaufen`);
+}
+
 initDb().then(() => {
   app.listen(PORT, async () => {
     console.log(`GroupPool läuft auf http://localhost:${PORT}`);
@@ -503,6 +591,9 @@ initDb().then(() => {
     } catch {}
     try { require('./monitor').start(null, dbGet, dbAll, dbRun, sendTelegram, fetchLiveStreamers); }
     catch (e) { console.error('[MONITOR] Start-Fehler:', e.message); }
+    // AUFGABE 4: Pool-Ablauf alle 30 Minuten prüfen
+    expireOldPools().catch(e => console.error('[EXPIRE]', e.message));
+    setInterval(() => expireOldPools().catch(e => console.error('[EXPIRE]', e.message)), 30 * 60_000);
   });
 }).catch(e => {
   console.error('[FATAL] DB init fehlgeschlagen:', e.message);

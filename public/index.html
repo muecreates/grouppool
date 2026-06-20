@@ -72,6 +72,8 @@
     .pool-card-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
     .pool-streamer { font-size: 13px; color: var(--purple); font-weight: 700; }
     .pool-gruppe { font-size: 16px; font-weight: 800; margin-top: 2px; }
+    .live-badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:800; padding:2px 7px; border-radius:100px; background:var(--red); color:#fff; margin-left:6px; vertical-align:middle; animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.7} }
     .pool-status { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 100px; background: rgba(0,200,83,.15); color: var(--green); }
     .pool-status.triggered { background: rgba(145,70,255,.15); color: var(--purple); }
     .pool-status.captcha { background: rgba(235,4,0,.15); color: var(--red); }
@@ -196,9 +198,20 @@
       <label>Zielbetrag (€)</label>
       <input id="c-ziel" type="number" min="1" step="1" placeholder="50">
     </div>
+    <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
+      <div class="field">
+        <label>Dein Name (Ersteller)</label>
+        <input id="c-creator-name" type="text" placeholder="Dein Twitch-Name">
+      </div>
+      <div class="field">
+        <label>Dein Starter-Beitrag (min. 1 €)</label>
+        <input id="c-creator-beitrag" type="number" min="1" step="1" placeholder="5" oninput="updateCreatorFee()">
+        <div id="c-creator-fee-note" style="font-size:11px;color:var(--muted);margin-top:4px">Pool ist erst nach deiner Zahlung sichtbar.</div>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('createModal')">Abbrechen</button>
-      <button class="btn" id="createSubmitBtn" onclick="submitCreate()">Pool erstellen</button>
+      <button class="btn" id="createSubmitBtn" onclick="submitCreate()">Pool erstellen →</button>
     </div>
   </div>
 </div>
@@ -340,7 +353,7 @@
         <div class="pool-card">
           <div class="pool-card-head">
             <div>
-              <div class="pool-streamer">@${esc(p.streamer)}</div>
+              <div class="pool-streamer">@${esc(p.streamer)}${p.is_live ? '<span class="live-badge">● LIVE</span>' : ''}</div>
               <div class="pool-gruppe">${esc(p.gruppe_name)}</div>
             </div>
             <span class="pool-status ${statusCls}">${statusLabel}</span>
@@ -380,35 +393,51 @@
     openModal('createModal');
   }
 
+  function updateCreatorFee() {
+    const b = parseFloat(document.getElementById('c-creator-beitrag')?.value || 0);
+    const note = document.getElementById('c-creator-fee-note');
+    if (!note) return;
+    if (b >= 1) note.innerHTML = `Du zahlst <strong>${(b * 1.05).toFixed(2)} €</strong> inkl. 5% Gebühr — Pool wird sofort nach Zahlung sichtbar.`;
+    else note.textContent = 'Pool ist erst nach deiner Zahlung sichtbar (mind. 1 €).';
+  }
+
   async function submitCreate() {
-    const streamer    = document.getElementById('c-streamer').value.trim();
-    const gruppe_name = document.getElementById('c-gruppe').value.trim();
-    const message     = document.getElementById('c-message').value.trim();
-    const ziel_betrag = parseFloat(document.getElementById('c-ziel').value);
+    const streamer         = document.getElementById('c-streamer').value.trim();
+    const gruppe_name      = document.getElementById('c-gruppe').value.trim();
+    const message          = document.getElementById('c-message').value.trim();
+    const ziel_betrag      = parseFloat(document.getElementById('c-ziel').value);
+    const ersteller_name   = document.getElementById('c-creator-name')?.value.trim() || '';
+    const ersteller_beitrag = parseFloat(document.getElementById('c-creator-beitrag')?.value || 0);
 
     if (!streamer || !gruppe_name || !message || !ziel_betrag || ziel_betrag <= 0) {
       toast('Bitte alle Felder ausfüllen.', 'error'); return;
     }
+    if (!ersteller_name || ersteller_beitrag < 1) {
+      toast('Bitte deinen Namen und Starter-Beitrag (mind. 1 €) eingeben.', 'error'); return;
+    }
 
     const btn = document.getElementById('createSubmitBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Erstelle…';
+    btn.innerHTML = '<span class="spinner"></span>Weiterleitung…';
 
     try {
-      await apiFetch('/pool/create', {
+      const data = await apiFetch('/pool/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ streamer, gruppe_name, message, ziel_betrag }),
+        body: JSON.stringify({ streamer, gruppe_name, message, ziel_betrag, ersteller_name, ersteller_beitrag }),
       });
-      closeModal('createModal');
-      toast('✅ Pool erstellt!', 'success');
-      await loadPools();
-      switchTabByName('pools');
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url; // → Stripe für Ersteller-Beitrag
+      } else {
+        closeModal('createModal');
+        toast('✅ Pool erstellt!', 'success');
+        await loadPools();
+        switchTabByName('pools');
+      }
     } catch (e) {
       toast('❌ ' + e.message, 'error');
-    } finally {
       btn.disabled = false;
-      btn.textContent = 'Pool erstellen';
+      btn.textContent = 'Pool erstellen →';
     }
   }
 
