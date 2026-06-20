@@ -328,7 +328,7 @@
   function renderPools() {
     const grid = document.getElementById('poolGrid');
     const badge = document.getElementById('poolCountBadge');
-    const open = pools.filter(p => p.status === 'open');
+    const open = pools.filter(p => p.status === 'open' || p.status === 'pending_creator');
     badge.textContent = open.length;
     badge.style.display = open.length ? 'inline' : 'none';
 
@@ -343,8 +343,8 @@
     grid.innerHTML = pools.map(p => {
       const pct = Math.min(100, Math.round((p.ist_betrag / p.ziel_betrag) * 100));
       const done = p.ist_betrag >= p.ziel_betrag;
-      const isOpen = p.status === 'open';
-      const statusLabel = { open: 'Offen', triggered: 'Ausgelöst!', closed: 'Geschlossen', captcha_required: '⚠ Manuelle Zahlung' }[p.status] || p.status;
+      const isOpen = p.status === 'open' || p.status === 'pending_creator';
+      const statusLabel = { open: 'Offen', pending_creator: 'Offen', triggered: 'Ausgelöst!', closed: 'Geschlossen', captcha_required: '⚠ Manuelle Zahlung' }[p.status] || p.status;
       const statusCls   = { open: '', triggered: 'triggered', captcha_required: 'captcha' }[p.status] || 'triggered';
       const captchaInfo = p.status === 'captcha_required'
         ? `<div class="captcha-admin-info">🔒 CAPTCHA blockiert Bot — manuelle Zahlung nötig<br>Pool-ID: <code>${esc(p.id)}</code> · Betrag: <strong>${p.ist_betrag.toFixed(2)} €</strong></div>`

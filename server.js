@@ -278,7 +278,7 @@ app.get('/api/pools', async (req, res) => {
   const pools = await dbAll(`
     SELECT p.*, COUNT(CASE WHEN c.status = 'paid' THEN 1 END) AS contributor_count
     FROM pools p LEFT JOIN contributions c ON c.pool_id = p.id
-    WHERE p.status IN ('open','triggered','captcha_required','expired')
+    WHERE p.status IN ('open','pending_creator','triggered','captcha_required','expired')
     GROUP BY p.id ORDER BY p.created_at DESC`);
   // AUFGABE 3: Live-Status aus Cache anhängen
   const liveSet = new Set(liveStreamerCache.streamers.map(s => s.user_login.toLowerCase()));
@@ -408,12 +408,14 @@ app.post('/pool/:id/checkout', async (req, res) => {
 // ── Stripe Webhook ────────────────────────────────────────────────────────────
 
 app.post('/webhook/stripe', async (req, res) => {
-  const sig = req.headers['stripe-signature'];
+  const sig    = req.headers['stripe-signature'];
+  const secret = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
   let event;
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    if (!secret) throw new Error('STRIPE_WEBHOOK_SECRET is not set');
+    event = stripe.webhooks.constructEvent(req.body, sig, secret);
   } catch (err) {
-    console.error('[WEBHOOK] Sig-Fehler:', err.message);
+    console.error('[WEBHOOK] Sig-Fehler:', err.message, '| secret set:', !!secret, '| body type:', typeof req.body);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -585,6 +587,12 @@ async function expireOldPools() {
 initDb().then(() => {
   app.listen(PORT, async () => {
     console.log(`GroupPool läuft auf http://localhost:${PORT}`);
+    const whSecret = (process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+    console.log(`[CONFIG] STRIPE_WEBHOOK_SECRET: ${whSecret ? `gesetzt (${whSecret.length} Zeichen, beginnt mit "${whSecret.slice(0,8)}...")` : 'NICHT GESETZT — Webhooks werden fehlschlagen!'}`);
+    console.log(`[CONFIG] STRIPE_SECRET_KEY: ${process.env.STRIPE_SECRET_KEY ? 'gesetzt' : 'NICHT GESETZT'}`);
+    console.log(`[CONFIG] BASE_URL: ${process.env.BASE_URL || '(nicht gesetzt, Standard: http://localhost:3001)'}`);
+    console.log(`[CONFIG] DATABASE_URL: ${process.env.DATABASE_URL ? 'gesetzt (PostgreSQL)' : 'nicht gesetzt (SQLite)'}`);
+
     try {
       const streamers = await fetchLiveStreamers();
       streamers.slice(0, 20).forEach(s => resolveDonationUrl(s.user_login).catch(() => {}));
