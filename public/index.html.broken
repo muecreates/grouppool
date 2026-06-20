@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GroupPool — Gemeinsam donaten</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#08080e;
+  --s1:#111118;
+  --s2:#1a1a24;
+  --s3:#22222e;
+  --border:#2a2a38;
+  --border2:#363648;
+  --p1:#7c3aed;--p2:#a855f7;--p3:#c084fc;
+  --g1:#10b981;--g2:#34d399;
+  --red:#ef4444;
+  --text:#f4f4f8;--t2:#b0b0c8;--t3:#6b6b85;
+  --r:12px;--r2:8px;
+  --transition:all .18s cubic-bezier(.4,0,.2,1);
+}
+html{font-size:16px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased}
+img{display:block}
+a{color:inherit;text-decoration:none}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:99px}
+
+/* ── NAV ── */
+.nav{
+  height:64px;background:rgba(8,8,14,.85);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;position:sticky;top:0;z-index:200;gap:16px;
+}
+.logo{
+  font-size:1.35rem;font-weight:900;letter-spacing:-.5px;cursor:pointer;
+  background:linear-gradient(135deg,var(--p2),#ec4899,var(--p1));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  flex-shrink:0;
+}
+.nav-right{display:flex;align-items:center;gap:12px}
+.how-link{
+  font-size:.88rem;font-weight:600;color:var(--t2);cursor:pointer;
+  padding:8px 12px;border-radius:var(--r2);transition:var(--transition);
+  white-space:nowrap;
+}
+.how-link:hover{color:var(--text);background:var(--s2)}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:10px 20px;
+  border-radius:var(--r2);font-size:.9rem;font-weight:700;cursor:pointer;
+  border:none;transition:var(--transition);font-family:inherit;white-space:nowrap;
+}
+.btn-primary{background:linear-gradient(135deg,var(--p1),var(--p2));color:#fff;box-shadow:0 2px 12px rgba(124,58,237,.35)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(124,58,237,.5)}
+.btn-primary:active{transform:none}
+.btn-ghost{background:var(--s2);border:1px solid var(--border2);color:var(--t2)}
+.btn-ghost:hover{border-color:var(--p2);color:var(--p3);background:rgba(168,85,247,.08)}
+.btn-sm{padding:8px 14px;font-size:.82rem}
+.btn-full{width:100%;justify-content:center}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+
+/* ── PAGE ── */
+.page{max-width:1280px;margin:0 auto;padding:32px 20px 80px}
+@media(max-width:640px){.page{padding:20px 12px 60px}}
+
+/* ── SECTION HEADERS ── */
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.sec-title{font-size:1.1rem;font-weight:800;display:flex;align-items:center;gap:8px}
+.sec-title .dot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:pulse 2s infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.75)}}
+
+/* ── CATEGORY BAR ── */
+.cat-bar{
+  display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;
+  scrollbar-width:none;margin-bottom:28px;
+}
+.cat-bar::-webkit-scrollbar{display:none}
+.cat-chip{
+  flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;
+  cursor:pointer;transition:var(--transition);
+}
+.cat-img-wrap{
+  width:56px;height:74px;border-radius:6px;overflow:hidden;
+  border:2px solid transparent;transition:var(--transition);
+  background:var(--s2);
+}
+.cat-chip.active .cat-img-wrap,.cat-chip:hover .cat-img-wrap{border-color:var(--p2)}
+.cat-img-wrap img{width:100%;height:100%;object-fit:cover}
+.cat-name{font-size:.65rem;font-weight:700;color:var(--t2);text-align:center;max-width:64px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:var(--transition)}
+.cat-chip.active .cat-name,.cat-chip:hover .cat-name{color:var(--p3)}
+.cat-all{
+  flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;
+}
+.cat-all-box{
+  width:56px;height:74px;border-radius:6px;
+  border:2px solid var(--border2);background:var(--s2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.4rem;transition:var(--transition);
+}
+.cat-all.active .cat-all-box,.cat-all:hover .cat-all-box{border-color:var(--p2);background:rgba(168,85,247,.1)}
+.cat-all-label{font-size:.65rem;font-weight:700;color:var(--t2);transition:var(--transition)}
+.cat-all.active .cat-all-label,.cat-all:hover .cat-all-label{color:var(--p3)}
+
+/* ── LIVE STREAMER GRID ── */
+.live-grid{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;
+}
+@media(max-width:1100px){.live-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:740px){.live-grid{grid-template-columns:repeat(2,1fr);gap:10px}}
+@media(max-width:420px){.live-grid{grid-template-columns:1fr}}
+
+.stream-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:var(--r);
+  overflow:hidden;cursor:pointer;transition:var(--transition);position:relative;
+}
+.stream-card:hover{border-color:var(--p1);transform:translateY(-3px);box-shadow:0 8px 32px rgba(124,58,237,.2)}
+.thumb-wrap{position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--s2)}
+.thumb-wrap img{width:100%;height:100%;object-fit:cover;transition:transform .3s}
+.stream-card:hover .thumb-wrap img{transform:scale(1.04)}
+.viewer-badge{
+  position:absolute;top:8px;right:8px;
+  background:rgba(0,0,0,.75);backdrop-filter:blur(6px);
+  border-radius:6px;padding:3px 8px;
+  display:flex;align-items:center;gap:5px;
+  font-size:.72rem;font-weight:800;color:#fff;
+}
+.viewer-badge .live-dot2{width:6px;height:6px;border-radius:50%;background:var(--red);animation:pulse 2s infinite;flex-shrink:0}
+.hover-btn{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
+  opacity:0;transition:opacity .18s;
+}
+.stream-card:hover .hover-btn{opacity:1}
+.hover-btn-inner{
+  background:linear-gradient(135deg,var(--p1),var(--p2));
+  color:#fff;font-weight:800;font-size:.88rem;
+  padding:10px 20px;border-radius:var(--r2);
+  box-shadow:0 4px 16px rgba(124,58,237,.5);
+}
+.stream-info{padding:12px}
+.stream-meta{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.stream-avatar{width:32px;height:32px;border-radius:50%;flex-shrink:0;border:2px solid var(--border2);background:var(--s2)}
+.stream-name{font-weight:800;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stream-game{font-size:.75rem;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── LOAD MORE ── */
+.load-more-wrap{text-align:center;margin-top:8px;margin-bottom:36px}
+
+/* ── POOL SECTION ── */
+.pool-toolbar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;margin-bottom:16px;flex-wrap:wrap;
+}
+.filter-tabs{
+  display:flex;gap:4px;background:var(--s1);
+  border:1px solid var(--border);border-radius:10px;padding:4px;
+}
+.tab{
+  padding:6px 14px;border-radius:7px;font-size:.82rem;font-weight:700;
+  cursor:pointer;transition:var(--transition);color:var(--t2);
+  border:none;background:none;font-family:inherit;
+}
+.tab.active{background:linear-gradient(135deg,var(--p1),var(--p2));color:#fff}
+.tab:not(.active):hover{color:var(--text);background:var(--s2)}
+.tab-count{
+  display:inline-flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.15);border-radius:99px;
+  font-size:.68rem;padding:1px 5px;margin-left:4px;
+}
+.sort-select{
+  background:var(--s1);border:1px solid var(--border);border-radius:var(--r2);
+  color:var(--text);padding:8px 12px;font-size:.85rem;outline:none;
+  cursor:pointer;font-family:inherit;transition:var(--transition);
+}
+.sort-select:focus{border-color:var(--p2)}
+
+/* ── POOL GRID ── */
+.pool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:900px){.pool-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:580px){.pool-grid{grid-template-columns:1fr;gap:10px}}
+
+.pool-card{
+  background:var(--s1);border:1px solid var(--border);border-radius:var(--r);
+  padding:20px;display:flex;flex-direction:column;gap:14px;
+  cursor:pointer;transition:var(--transition);
+}
+.pool-card:hover{border-color:rgba(168,85,247,.5);transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.pool-top{display:flex;align-items:center;gap:10px}
+.pool-avatar{width:40px;height:40px;border-radius:50%;border:2px solid var(--border2);background:var(--s2);flex-shrink:0}
+.pool-streamer-info{flex:1;min-width:0}
+.pool-streamer-name{font-weight:800;font-size:.95rem}
+.pool-gruppe{font-size:.78rem;color:var(--t2)}
+.pool-badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;border-radius:99px;font-size:.68rem;font-weight:800;
+  text-transform:uppercase;letter-spacing:.4px;
+}
+.badge-open{background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);color:var(--g1)}
+.badge-open::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--g1);animation:pulse 2s infinite}
+.badge-timer{background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24}
+.pool-message{font-size:.82rem;color:var(--t2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45}
+
+/* ── PROGRESS ── */
+.prog-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.prog-current{
+  font-size:1.2rem;font-weight:900;letter-spacing:-.5px;
+  background:linear-gradient(135deg,var(--g1),#06b6d4);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.prog-goal{font-size:.8rem;color:var(--t3)}
+.prog-bg{width:100%;height:8px;background:var(--s3);border-radius:99px;overflow:hidden}
+.prog-fill{
+  height:100%;
+  background:linear-gradient(90deg,var(--p1),var(--p2),var(--g1));
+  border-radius:99px;transition:width 1.2s cubic-bezier(.4,0,.2,1);
+  min-width:4px;
+}
+.prog-foot{display:flex;justify-content:space-between;margin-top:6px}
+.prog-pct{font-size:.72rem;color:var(--t3)}
+.prog-parts{font-size:.72rem;color:var(--t2)}
+.pool-join-btn{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:11px;border-radius:var(--r2);font-size:.9rem;font-weight:700;
+  background:linear-gradient(135deg,var(--p1),var(--p2));color:#fff;
+  transition:var(--transition);border:none;cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 10px rgba(124,58,237,.3);
+}
+.pool-join-btn:hover{transform:translateY(-1px);box-shadow:0 4px 18px rgba(124,58,237,.5)}
+
+/* ── EMPTY ── */
+.empty-state{
+  grid-column:1/-1;text-align:center;padding:80px 20px;
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+}
+.empty-icon{font-size:3.5rem}
+.empty-title{font-size:1.3rem;font-weight:800}
+.empty-sub{color:var(--t2);font-size:.9rem}
+
+/* ── SKELETON ── */
+.skel{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:relative}
+.skel::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.04),transparent);
+  animation:shimmer 1.5s infinite;
+}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* ── MODAL ── */
+.overlay{
+  position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.8);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;padding:16px;
+  opacity:0;pointer-events:none;transition:opacity .2s;
+}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{
+  background:var(--s1);border:1px solid var(--border2);border-radius:16px;
+  width:100%;max-width:520px;max-height:92vh;overflow-y:auto;
+  transform:translateY(16px) scale(.98);transition:transform .2s;
+}
+.overlay.open .modal{transform:none}
+.modal-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:24px 24px 0;margin-bottom:20px;
+}
+.modal-title{font-size:1.15rem;font-weight:800}
+.modal-close{
+  width:32px;height:32px;border-radius:8px;background:var(--s2);
+  border:1px solid var(--border);color:var(--t2);cursor:pointer;
+  font-size:1rem;display:flex;align-items:center;justify-content:center;
+  transition:var(--transition);
+}
+.modal-close:hover{background:var(--s3);color:var(--text)}
+.modal-body{padding:0 24px 24px}
+
+/* ── FORM ── */
+.field{margin-bottom:18px}
+label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t2);margin-bottom:6px}
+input,textarea,select{
+  width:100%;background:var(--s2);border:1px solid var(--border);
+  border-radius:var(--r2);color:var(--text);font-size:.95rem;
+  padding:11px 13px;outline:none;font-family:inherit;transition:border-color .15s;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--p2)}
+input::placeholder,textarea::placeholder{color:var(--t3)}
+textarea{resize:vertical;min-height:72px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:440px){.row2{grid-template-columns:1fr}}
+.alert-success{
+  background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);
+  color:var(--g1);border-radius:var(--r2);padding:11px 14px;
+  font-size:.88rem;margin-bottom:16px;
+}
+.alert-error{
+  background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);
+  color:var(--red);border-radius:var(--r2);padding:11px 14px;
+  font-size:.85rem;margin-bottom:16px;display:none;
+}
+.spinner{
+  width:16px;height:16px;border:2px solid rgba(255,255,255,.25);
+  border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;display:inline-block;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── AUTOCOMPLETE ── */
+.ac-wrap{position:relative}
+.ac-drop{
+  position:absolute;top:calc(100%+6px);left:0;right:0;z-index:600;
+  background:var(--s1);border:1px solid var(--border2);border-radius:10px;
+  box-shadow:0 12px 40px rgba(0,0,0,.6);max-height:240px;overflow-y:auto;display:none;
+}
+.ac-drop.open{display:block}
+.ac-item{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:background .1s;
+}
+.ac-item:hover,.ac-item.focused{background:var(--s2)}
+.ac-item img{width:36px;height:36px;border-radius:50%;flex-shrink:0;border:1px solid var(--border)}
+.ac-info{flex:1;min-width:0}
+.ac-name{font-weight:700;font-size:.9rem}
+.ac-game{font-size:.73rem;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ac-viewers{font-size:.72rem;color:var(--red);font-weight:800;white-space:nowrap}
+.ac-selected{
+  display:none;align-items:center;gap:10px;
+  background:var(--s2);border:1px solid var(--p1);border-radius:var(--r2);padding:10px 13px;
+}
+.ac-selected.visible{display:flex}
+.ac-selected img{width:28px;height:28px;border-radius:50%}
+.ac-selected-name{font-weight:700;font-size:.92rem;flex:1}
+.ac-clear{color:var(--t3);cursor:pointer;font-size:1rem;padding:2px;line-height:1;transition:color .15s}
+.ac-clear:hover{color:var(--red)}
+.ac-err{font-size:.78rem;color:var(--red);margin-top:5px;display:none}
+.ac-err.show{display:block}
+
+/* ── FEE BOX ── */
+.fee-box{
+  background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);
+  padding:14px 16px;margin:14px 0;display:none;
+}
+.fee-box.show{display:block}
+.fee-row{display:flex;justify-content:space-between;align-items:center;font-size:.84rem;padding:3px 0}
+.fee-lbl{color:var(--t2)}
+.fee-val{font-weight:700}
+.fee-sep{height:1px;background:var(--border);margin:8px 0}
+.fee-total .fee-lbl{color:var(--text);font-weight:700}
+.fee-total .fee-val{color:var(--g1);font-size:.95rem;font-weight:900}
+.fee-note{font-size:.72rem;color:var(--t3);margin-top:8px;line-height:1.5}
+
+/* ── PRESETS ── */
+.presets{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.preset{
+  padding:7px 14px;border-radius:var(--r2);background:var(--s2);
+  border:1px solid var(--border);color:var(--t2);font-size:.85rem;font-weight:700;
+  cursor:pointer;transition:var(--transition);
+}
+.preset:hover,.preset.active{border-color:var(--p2);color:var(--p3);background:rgba(168,85,247,.1)}
+
+/* ── HOW IT WORKS MODAL ── */
+.how-steps{display:flex;flex-direction:column;gap:20px;padding:8px 0}
+.how-step{display:flex;gap:16px;align-items:flex-start}
+.how-num{
+  width:36px;height:36px;border-radius:50%;flex-shrink:0;
+  background:linear-gradient(135deg,var(--p1),var(--p2));
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:1rem;color:#fff;
+}
+.how-text h3{font-weight:800;margin-bottom:4px;font-size:.95rem}
+.how-text p{font-size:.85rem;color:var(--t2);line-height:1.5}
+
+/* ── DETAIL VIEW ── */
+.detail-wrap{max-width:660px;margin:0 auto}
+.back-btn{
+  display:inline-flex;align-items:center;gap:6px;color:var(--t2);
+  font-size:.88rem;font-weight:600;cursor:pointer;margin-bottom:24px;
+  transition:color .15s;
+}
+.back-btn:hover{color:var(--text)}
+.detail-card{background:var(--s1);border:1px solid var(--border);border-radius:16px;padding:28px}
+@media(max-width:580px){.detail-card{padding:20px}}
+.detail-hero{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.detail-avatar{width:56px;height:56px;border-radius:50%;border:3px solid var(--border2);background:var(--s2);flex-shrink:0}
+.detail-streamer{font-size:1.4rem;font-weight:900;letter-spacing:-.5px}
+.detail-gruppe{font-size:.88rem;color:var(--t2);margin-top:2px}
+.detail-amount{font-size:2.2rem;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,var(--g1),#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.detail-sep{height:1px;background:var(--border);margin:24px 0}
+.section-lbl{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);margin-bottom:12px}
+.contrib-row{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);
+  padding:10px 14px;margin-bottom:8px;
+}
+.contrib-name{font-weight:700;font-size:.9rem}
+.contrib-amt{color:var(--g1);font-weight:800}
+.empty-contribs{text-align:center;padding:20px;color:var(--t3);border:1px dashed var(--border);border-radius:var(--r2);font-size:.85rem}
+.join-section{margin-top:24px}
+.share-row{display:flex;gap:8px;margin-top:20px}
+.share-url{
+  flex:1;background:var(--s2);border:1px solid var(--border);border-radius:var(--r2);
+  padding:10px 13px;font-family:monospace;font-size:.8rem;color:var(--t2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.copy-btn{
+  padding:10px 14px;background:var(--s2);border:1px solid var(--border);
+  border-radius:var(--r2);color:var(--t2);cursor:pointer;
+  font-size:.82rem;font-weight:700;transition:var(--transition);white-space:nowrap;
+}
+.copy-btn:hover{border-color:var(--p2);color:var(--p3)}
+.success-banner{
+  background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);
+  color:var(--g1);border-radius:var(--r2);padding:12px 16px;
+  font-size:.88rem;margin-bottom:20px;max-width:660px;margin-left:auto;margin-right:auto;
+}
+
+/* ── REFRESH INFO ── */
+.refresh-info{font-size:.72rem;color:var(--t3);text-align:right;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="logo" id="logo">GroupPool</div>
+  <div class="nav-right">
+    <span class="how-link" id="how-btn">Wie funktioniert's?</span>
+    <button class="btn btn-primary btn-sm" id="nav-create-btn">+ Neuen Pool</button>
+  </div>
+</nav>
+
+<!-- MODAL: Neuen Pool erstellen -->
+<div class="overlay" id="create-overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Pool erstellen</div>
+      <button class="modal-close" id="create-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert-success" id="create-success" style="display:none">✓ Pool erstellt! Weiterleitung…</div>
+      <div class="alert-error" id="create-err"></div>
+      <form id="create-form">
+        <div class="field">
+          <label>Streamer (muss gerade live sein)</label>
+          <input type="hidden" name="streamer" id="streamer-val"/>
+          <div class="ac-wrap">
+            <div class="ac-selected" id="ac-selected">
+              <img id="ac-sel-img" src="" alt=""/>
+              <span class="ac-selected-name" id="ac-sel-name"></span>
+              <span class="ac-clear" id="ac-clear">✕</span>
+            </div>
+            <div id="ac-input-wrap">
+              <input id="ac-input" autocomplete="off" placeholder="Streamer suchen…" spellcheck="false"/>
+              <div class="ac-drop" id="ac-drop"></div>
+            </div>
+          </div>
+          <div class="ac-err" id="ac-err">⚠ Dieser Streamer ist gerade nicht live</div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Ziel-Betrag (€)</label>
+            <input name="ziel_betrag" type="number" min="1" step="0.01" placeholder="50.00" required/>
+          </div>
+          <div class="field">
+            <label>Gruppen-Name</label>
+            <input name="gruppe_name" placeholder="Die Couch-Gang" required/>
+          </div>
+        </div>
+        <div class="field">
+          <label>Nachricht an Streamer</label>
+          <textarea name="message" placeholder="Wir sind 5 Viewer und sagen Danke!" required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="create-btn">Pool erstellen →</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Wie funktioniert's? -->
+<div class="overlay" id="how-overlay">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-head">
+      <div class="modal-title">Wie funktioniert GroupPool?</div>
+      <button class="modal-close" id="how-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="how-steps">
+        <div class="how-step">
+          <div class="how-num">1</div>
+          <div class="how-text">
+            <h3>Streamer wählen</h3>
+            <p>Wähle einen Streamer der gerade live ist. Nur live Streamer können ausgewählt werden.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-num">2</div>
+          <div class="how-text">
+            <h3>Gruppe sammelt</h3>
+            <p>Teile den Pool-Link mit deiner Gruppe. Jeder zahlt seinen Anteil sicher via Stripe.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-num">3</div>
+          <div class="how-text">
+            <h3>Alert auf Stream 🚀</h3>
+            <p>Sobald das Ziel erreicht ist, erscheint ein Gruppen-Alert live auf dem Stream. Der Streamer sieht alle Namen!</p>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+        <div style="font-size:.78rem;color:var(--t3);line-height:1.6">
+          💰 <strong style="color:var(--t2)">Transparente Gebühren:</strong> 5% Service Fee + Stripe Zahlungsgebühr werden aufgeschlagen — der Streamer erhält den vollen Betrag.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="page" id="app"></div>
+
+<script>
+const API = location.hostname === 'localhost' ? 'http://localhost:3001' : '';
+
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let pools          = [];
+let filtered       = [];
+let liveStreamers  = [];
+let categories     = [];
+let activeTab      = 'all';
+let sortBy         = 'newest';
+let activeCat      = null;
+let liveQuery      = '';
+let liveVisible    = 20;
+let refreshTimer   = null;
+let poolPollTimer  = null;
+
+// ── ROUTER ─────────────────────────────────────────────────────────────────────
+const poolId = () => new URLSearchParams(location.search).get('pool');
+function navigate(id) {
+  history.pushState({}, '', id ? `/?pool=${id}` : '/');
+  render();
+}
+window.addEventListener('popstate', render);
+
+// ── API ─────────────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const r = await fetch(API + path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
+
+// ── HELPERS ─────────────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(n) { return Number(n).toLocaleString('de-DE'); }
+function fmtEur(n) { return `€${Number(n).toFixed(2).replace('.',',')}` }
+function calcFees(eur) {
+  const total   = Math.round(((eur + 0.25) / (1 - 0.065)) * 100) / 100;
+  const service = Math.round(eur * 0.05 * 100) / 100;
+  const stripe  = Math.round((eur * 0.015 + 0.25) * 100) / 100;
+  return { total, service, stripe };
+}
+function timeAgo(dateStr) {
+  const ms = Date.now() - new Date(dateStr + 'Z').getTime();
+  const m  = Math.floor(ms / 60000);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m/60)}h ${m%60}m`;
+}
+function countdown(dateStr) {
+  const ms = 3600000 - (Date.now() - new Date(dateStr + 'Z').getTime());
+  if (ms <= 0) return null;
+  const m = Math.floor(ms / 60000);
+  return `${m}m`;
+}
+
+// ── MODAL ──────────────────────────────────────────────────────────────────────
+function openOverlay(id) { document.getElementById(id).classList.add('open'); }
+function closeOverlay(id) { document.getElementById(id).classList.remove('open'); }
+
+document.getElementById('how-btn').onclick     = () => openOverlay('how-overlay');
+document.getElementById('how-close').onclick   = () => closeOverlay('how-overlay');
+document.getElementById('nav-create-btn').onclick = openCreateModal;
+document.getElementById('create-close').onclick   = closeCreateModal;
+document.getElementById('logo').onclick        = () => navigate(null);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeOverlay('how-overlay'); closeCreateModal(); } });
+['how-overlay','create-overlay'].forEach(id => {
+  document.getElementById(id).addEventListener('click', e => { if (e.target.id === id) { if(id==='how-overlay') closeOverlay(id); else closeCreateModal(); }});
+});
+
+function openCreateModal(preSelect) {
+  openOverlay('create-overlay');
+  document.getElementById('create-err').style.display = 'none';
+  document.getElementById('create-err').textContent = '';
+  if (preSelect) { setTimeout(() => selectStreamer(preSelect), 60); }
+  else { setTimeout(() => document.getElementById('ac-input').focus(), 60); }
+}
+function closeCreateModal() {
+  closeOverlay('create-overlay');
+  document.getElementById('create-form').reset();
+  clearStreamer();
+  document.getElementById('create-success').style.display = 'none';
+  document.getElementById('create-err').style.display = 'none';
+  document.getElementById('create-btn').disabled = false;
+  document.getElementById('create-btn').innerHTML = 'Pool erstellen →';
+}
+
+// ── AUTOCOMPLETE ──────────────────────────────────────────────────────────────
+function selectStreamer(s) {
+  if (typeof s === 'string') s = liveStreamers.find(x => x.user_login===s||x.user_name===s) || {user_name:s,user_login:s,profile_image_url:''};
+  document.getElementById('streamer-val').value = s.user_login;
+  document.getElementById('ac-sel-name').textContent = s.user_name;
+  const img = document.getElementById('ac-sel-img');
+  img.src = s.profile_image_url || ''; img.style.display = s.profile_image_url ? '' : 'none';
+  document.getElementById('ac-selected').classList.add('visible');
+  document.getElementById('ac-input-wrap').style.display = 'none';
+  document.getElementById('ac-err').classList.remove('show');
+  closeAcDrop();
+}
+function clearStreamer() {
+  document.getElementById('streamer-val').value = '';
+  document.getElementById('ac-selected').classList.remove('visible');
+  document.getElementById('ac-input-wrap').style.display = '';
+  document.getElementById('ac-input').value = '';
+}
+function closeAcDrop() { document.getElementById('ac-drop').classList.remove('open'); }
+
+function openAcDrop(items, fromSearch) {
+  const dd = document.getElementById('ac-drop');
+  if (!items.length) { dd.classList.remove('open'); return; }
+  dd.innerHTML = items.slice(0,8).map(s => {
+    // Items from local cache → selectStreamer with object; from API search → pass the item directly
+    const dataAttr = JSON.stringify({user_name:s.user_name,user_login:s.user_login,profile_image_url:s.profile_image_url,game_name:s.game_name,viewer_count:s.viewer_count});
+    return `<div class="ac-item" onclick='selectStreamer(${dataAttr.replace(/'/g,"&#39;")})'>
+      ${s.profile_image_url?`<img src="${esc(s.profile_image_url)}" alt="" loading="lazy">`:'<div style="width:36px;height:36px;border-radius:50%;background:var(--s3);flex-shrink:0"></div>'}
+      <div class="ac-info">
+        <div class="ac-name">${esc(s.user_name)}</div>
+        <div class="ac-game">${esc(s.game_name||'Just Chatting')}</div>
+      </div>
+      <div class="ac-viewers">${s.viewer_count ? '👁 '+fmt(s.viewer_count) : '<span style="color:var(--g1);font-size:.68rem;font-weight:700">LIVE</span>'}</div>
+    </div>`;
+  }).join('');
+  dd.classList.add('open');
+}
+
+let acSearchTimer = null;
+async function searchStreamerAPI(q) {
+  const dd = document.getElementById('ac-drop');
+  dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Suche auf Twitch…</div>`;
+  dd.classList.add('open');
+  try {
+    const res = await api('GET', `/api/search-streamer?q=${encodeURIComponent(q)}`);
+    const items = res.streamers || [];
+    if (!items.length) {
+      dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Kein live Streamer gefunden</div>`;
+      document.getElementById('ac-err').classList.add('show');
+    } else {
+      document.getElementById('ac-err').classList.remove('show');
+      openAcDrop(items, true);
+    }
+  } catch {
+    dd.innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--red)">Suche fehlgeschlagen</div>`;
+  }
+}
+
+document.getElementById('ac-input').addEventListener('input', e => {
+  const q = e.target.value.trim();
+  const ql = q.toLowerCase();
+  document.getElementById('ac-err').classList.remove('show');
+  clearTimeout(acSearchTimer);
+  if (!q) { closeAcDrop(); return; }
+
+  // 1. Instant local match
+  const hits = liveStreamers.filter(s => s.user_login.toLowerCase().includes(ql)||s.user_name.toLowerCase().includes(ql));
+  if (hits.length) { openAcDrop(hits); return; }
+
+  // 2. No local match → show loading hint, then debounce API call
+  if (q.length >= 2) {
+    document.getElementById('ac-drop').innerHTML = `<div style="padding:12px 14px;font-size:.82rem;color:var(--t3)">Suche auf Twitch…</div>`;
+    document.getElementById('ac-drop').classList.add('open');
+    acSearchTimer = setTimeout(() => searchStreamerAPI(q), 500);
+  }
+});
+document.getElementById('ac-input').addEventListener('focus', e => { if(e.target.value) e.target.dispatchEvent(new Event('input')); });
+document.getElementById('ac-clear').addEventListener('click', () => { clearTimeout(acSearchTimer); clearStreamer(); });
+document.addEventListener('click', e => { if (!e.target.closest('.ac-wrap')) { clearTimeout(acSearchTimer); closeAcDrop(); } });
+
+// ── CREATE FORM ────────────────────────────────────────────────────────────────
+document.getElementById('create-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const streamer = document.getElementById('streamer-val').value.trim();
+  if (!streamer) {
+    document.getElementById('ac-err').textContent = '⚠ Bitte einen live Streamer auswählen';
+    document.getElementById('ac-err').classList.add('show');
+    document.getElementById('ac-input').focus(); return;
+  }
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Erstelle…';
+  const fd = new FormData(e.target);
+  try {
+    const res = await fetch(`http://localhost:3001/pool/${id}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            teilnehmer_name: fd.get('cname'),
+            betrag: parseFloat(fd.get('amt'))
+        })
+    });
+    
+    if (res.ok) {
+        alert('Erfolgreich beigetreten!');
+        location.reload();
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = 'Zur Kasse → Stripe</button>
+            </form>
+          </div>`:`
+          <div class="detail-sep"></div>
+          <div id="goal-reached-banner" style="
+            background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(16,185,129,.15));
+            border:1px solid rgba(16,185,129,.4);border-radius:12px;padding:24px;text-align:center;
+          ">
+            <div style="font-size:2.8rem;margin-bottom:8px">🎉</div>
+            <div style="font-weight:900;font-size:1.2rem;margin-bottom:6px">Ziel erreicht!</div>
+            <div style="color:var(--t2);font-size:.9rem;margin-bottom:12px">Die Gruppen-Donation wird jetzt live an @${esc(pool.streamer)} gesendet.</div>
+            <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 16px;font-size:.85rem;color:var(--g1);font-weight:700">
+              🚀 Donation wird ausgelöst!
+            </div>
+          </div>`}
+          <div class="detail-sep"></div>
+          <div class="section-lbl" style="margin-bottom:10px">Link teilen</div>
+          <div class="share-row">
+            <div class="share-url" id="share-url">${location.origin}/?pool=${pool.id}</div>
+            <button class="copy-btn" id="copy-btn" onclick="copyLink()">📋 Kopieren</button>
+          </div>
+        </div>
+      </div>`;
+
+    setTimeout(()=>{ const el=document.getElementById('det-prog'); if(el) el.style.width=`${pct}%`; },60);
+    if (ziel_erreicht || pool.status==='triggered') setTimeout(launchConfetti, 300);
+
+    const joinForm = document.getElementById('join-form');
+    if (joinForm) {
+      const amtInp = document.getElementById('amt-inp');
+      amtInp.addEventListener('input', updateFee);
+joinForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const btn = document.getElementById('join-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Weiterleitung...';
+        
+        const fd = new FormData(e.target);
+        
+        try {
+            const res = await fetch(`http://localhost:3001/pool/${id}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    teilnehmer_name: fd.get('cname'),
+                    betrag: parseFloat(fd.get('amt'))
+                })
+            });
+            
+            if (res.ok) {
+                alert('Erfolgreich beigetreten!');
+                location.reload();
+            } else {
+                alert('Fehler beim Beitreten');
+                btn.disabled = false;
+                btn.innerHTML = 'Zur Kasse';
+            }
+        } catch(err) {
+            alert('Netzwerkfehler');
+            btn.disabled = false;
+            btn.innerHTML = 'Zur Kasse';
+        }
+    });
+
+    if (poolPollTimer) clearTimeout(poolPollTimer);
+    if (pool.status==='open') poolPollTimer = setTimeout(()=>renderDetail(id), 6000);
+  } catch {
+    app.innerHTML=`<div class="detail-wrap"><p style="color:var(--red)">Server nicht erreichbar.</p><br><button class="btn btn-ghost btn-sm" onclick="navigate(null)">← Zurück</button></div>`;
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function updateFee() {
+  const euros = parseFloat(document.getElementById('amt-inp').value);
+  const box   = document.getElementById('fee-box');
+  if (!euros||isNaN(euros)||euros<=0) { box.classList.remove('show'); return; }
+  const {total,service,stripe} = calcFees(euros);
+  document.getElementById('f-contrib').textContent       = fmtEur(euros);
+  document.getElementById('f-service').textContent       = fmtEur(service);
+  document.getElementById('f-stripe').textContent        = fmtEur(stripe);
+  document.getElementById('f-total').textContent         = fmtEur(total);
+  const sg = document.getElementById('f-streamer-gets');
+  if (sg) sg.textContent = fmtEur(euros);
+  const btn = document.getElementById('join-btn');
+  if (btn) btn.textContent = `${fmtEur(total)} → Stripe bezahlen`;
+  box.classList.add('show');
+}
+function setAmt(v) {
+  const inp = document.getElementById('amt-inp'); if(!inp) return;
+  inp.value=v; inp.dispatchEvent(new Event('input'));
+  document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+function copyLink() {
+  const url = document.getElementById('share-url')?.textContent || location.href;
+  navigator.clipboard.writeText(url).then(()=>{
+    const b=document.getElementById('copy-btn')||document.querySelector('.copy-btn');
+    if (!b) return;
+    b.textContent='✓ Link kopiert!'; b.style.color='var(--g1)'; b.style.borderColor='var(--g1)';
+    setTimeout(()=>{ b.textContent='📋 Kopieren'; b.style.color=''; b.style.borderColor=''; },2500);
+  });
+}
+
+function launchConfetti() {
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  canvas.width = innerWidth; canvas.height = innerHeight;
+  const colors = ['#7c3aed','#a855f7','#10b981','#f59e0b','#ec4899','#06b6d4'];
+  const pieces = Array.from({length:120}, () => ({
+    x: Math.random()*canvas.width, y: -20,
+    w: Math.random()*10+5, h: Math.random()*6+3,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    rot: Math.random()*360, drot: (Math.random()-0.5)*8,
+    vx: (Math.random()-0.5)*4, vy: Math.random()*4+2,
+    alpha: 1,
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    pieces.forEach(p => {
+      p.x+=p.vx; p.y+=p.vy; p.rot+=p.drot;
+      if (frame > 90) p.alpha = Math.max(0, p.alpha - 0.015);
+      ctx.save(); ctx.globalAlpha=p.alpha;
+      ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.color; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+      ctx.restore();
+    });
+    frame++;
+    if (frame < 150) requestAnimationFrame(draw);
+    else canvas.remove();
+  }
+  draw();
+}
+
+// ── RENDER ─────────────────────────────────────────────────────────────────────
+function render() {
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer=null; }
+  if (poolPollTimer) { clearTimeout(poolPollTimer); poolPollTimer=null; }
+  const id = poolId();
+  if (id) {
+    renderDetail(id);
+  } else {
+    document.getElementById('app').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:40px">
+        ${Array(8).fill(`<div class="skel" style="aspect-ratio:16/9;border-radius:var(--r)"></div>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        ${Array(6).fill(`<div class="skel" style="height:220px"></div>`).join('')}
+      </div>`;
+    loadHome();
+  }
+}
+
+render();
+</script>
+</body>
+</html>
