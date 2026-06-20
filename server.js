@@ -278,6 +278,7 @@ app.get('/api/pools', async (req, res) => {
   const pools = await dbAll(`
     SELECT p.*, COUNT(CASE WHEN c.status = 'paid' THEN 1 END) AS contributor_count
     FROM pools p LEFT JOIN contributions c ON c.pool_id = p.id
+    WHERE p.status IN ('open','triggered','captcha_required','expired')
     GROUP BY p.id ORDER BY p.created_at DESC`);
   // AUFGABE 3: Live-Status aus Cache anhängen
   const liveSet = new Set(liveStreamerCache.streamers.map(s => s.user_login.toLowerCase()));

@@ -213,21 +213,35 @@ async function flowTipeeeStream(page, context, { amount, message, groupName }) {
   console.log('[BOT] PayPal-Button geklickt...');
 
   console.log('\n[BOT] ── STEP 2: PayPal ──');
-  await page.waitForURL(/paypal\.com/, { timeout: 15_000 });
-  await page.waitForLoadState('networkidle', { timeout: 20_000 });
-  await page.waitForTimeout(1500);
-  await checkCaptcha(page);
+  // PayPal öffnet manchmal als Popup (neues Tab), manchmal als Redirect
+  let paypalPage = page;
+  const [popup] = await Promise.all([
+    context.waitForEvent('page', { timeout: 10_000 }).catch(() => null),
+    page.waitForURL(/paypal\.com/, { timeout: 10_000 }).catch(() => null),
+  ]);
+  if (popup) {
+    paypalPage = popup;
+    await paypalPage.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    console.log('[BOT] PayPal Popup geladen:', paypalPage.url());
+  } else if (page.url().includes('paypal.com')) {
+    await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+    console.log('[BOT] PayPal Redirect geladen:', page.url());
+  } else {
+    throw new Error('PayPal nicht erreichbar nach Klick');
+  }
+  await paypalPage.waitForTimeout(1500);
+  await checkCaptcha(paypalPage);
 
-  const cardBtn = page.locator('button:has-text("Debit"), button:has-text("Kredit"), button:has-text("Credit")').first();
+  const cardBtn = paypalPage.locator('button:has-text("Debit"), button:has-text("Kredit"), button:has-text("Credit")').first();
   await cardBtn.waitFor({ state: 'visible', timeout: 15_000 });
   await cardBtn.click();
 
   console.log('\n[BOT] ── STEP 3: Kreditkartenformular ──');
-  await fillPayPalCardForm(page);
-  await checkCaptcha(page);
+  await fillPayPalCardForm(paypalPage);
+  await checkCaptcha(paypalPage);
 
-  // AUFGABE 3: echter Submit wenn TEST_MODE=false
-  await clickSubmit(page, 'button:has-text("Zustimmen und weiter"), button:has-text("Agree and Continue")', 'Zustimmen und weiter');
+  // echter Submit wenn TEST_MODE=false (paypalPage = popup oder main page)
+  await clickSubmit(paypalPage, 'button:has-text("Zustimmen und weiter"), button:has-text("Agree and Continue")', 'Zustimmen und weiter');
 }
 
 // ── Streamlabs ────────────────────────────────────────────────────────────────
