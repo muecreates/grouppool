@@ -34,7 +34,7 @@ const CHECKS = [
   {
     platform: 'streamelements',
     url:      'https://streamelements.com/eliasn97/tip',
-    signal:   'StreamElements',
+    signal:   'streamelements',   // lowercase — present in script/canonical URLs in SSR HTML
     label:    'StreamElements',
   },
 ];

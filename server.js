@@ -277,13 +277,22 @@ async function triggerPool(poolId) {
     return { success: true, queued: true };
   }
   botActive = true;
-  await _runTrigger(poolId);
+  try {
+    await _runTrigger(poolId);
+  } catch (err) {
+    console.error(`[TRIGGER] Unerwarteter Fehler in _runTrigger für ${poolId}:`, err.message);
+    botActive = false;
+    processNextInQueue();
+  }
   return { success: true };
 }
 
 async function _runTrigger(poolId) {
+  console.log(`[TRIGGER] _runTrigger gestartet für Pool ${poolId}`);
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
+  console.log(`[TRIGGER] Pool geladen: status=${pool?.status} ist=${pool?.ist_betrag} ziel=${pool?.ziel_betrag}`);
   const contributors = await dbAll("SELECT teilnehmer_name, betrag, email FROM contributions WHERE pool_id = ? AND status = 'paid'", [poolId]);
+  console.log(`[TRIGGER] ${contributors.length} bezahlte Beiträge geladen`);
   // Task 6: donation message format depends on names_visible
   let donationMessage;
   if (pool.names_visible) {
@@ -586,7 +595,13 @@ app.post('/webhook/stripe', async (req, res) => {
           console.log(`[WEBHOOK] Pool ${poolId} durch Ersteller-Zahlung aktiviert`);
         }
         const updated = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
-        if (updated?.status === 'open' && updated.ist_betrag >= updated.ziel_betrag) await triggerPool(poolId);
+        console.log(`[WEBHOOK] Pool nach Update: status=${updated?.status} ist=${updated?.ist_betrag} ziel=${updated?.ziel_betrag}`);
+        if (updated?.status === 'open' && updated.ist_betrag >= updated.ziel_betrag) {
+          console.log(`[WEBHOOK] Ziel erreicht — starte triggerPool(${poolId})`);
+          await triggerPool(poolId);
+        } else {
+          console.log(`[WEBHOOK] Ziel noch nicht erreicht oder Status nicht open — kein Trigger`);
+        }
       } catch (err) {
         console.error('[WEBHOOK] Fehler:', err.message);
       }
