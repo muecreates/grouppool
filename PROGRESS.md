@@ -23,8 +23,10 @@
 - [x] Task 14/16: loading="lazy" + width/height on stream thumb & QR img
 - [x] Task 15: Removed unused .pools-link CSS (streamer.html); no other unused rules found
 
-### Section 5 — Streamer Discovery
-- [ ] Task 17-19: game/lang/sort filters
+### Section 5 — Streamer Discovery ✅
+- [x] Task 17: fetchLiveStreamers returns game_name + language
+- [x] Task 18: /api/live-streamers ?game ?lang ?sort=viewers|newest_pools|most_funded
+- [x] Task 19: category/language/sort dropdowns in index.html (reload on change)
 
 ---
 

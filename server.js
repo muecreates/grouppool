@@ -105,7 +105,8 @@ async function fetchLiveStreamers() {
     const streamers = (d1.data || [])
       .filter(s => !EXCLUDED_LANGS.has(s.language))
       .map(s => ({
-        user_name: s.user_name, user_login: s.user_login, viewer_count: s.viewer_count, title: s.title
+        user_name: s.user_name, user_login: s.user_login, viewer_count: s.viewer_count, title: s.title,
+        game_name: s.game_name || '', language: s.language || ''
       }));
     liveStreamerCache = { streamers, expires: Date.now() + 5 * 60_000 };
     return streamers;
@@ -348,7 +349,54 @@ async function _runTrigger(poolId) {
 // ── Routes: Pools ─────────────────────────────────────────────────────────────
 
 app.get('/api/live-streamers', async (req, res) => {
-  res.json({ streamers: await fetchLiveStreamers() });
+  let streamers = await fetchLiveStreamers();
+  const { game, lang, sort } = req.query;
+
+  // Filter by game_name (case-insensitive contains)
+  if (game) {
+    const g = String(game).toLowerCase();
+    streamers = streamers.filter(s => (s.game_name || '').toLowerCase().includes(g));
+  }
+  // Filter by language code
+  if (lang) {
+    const l = String(lang).toLowerCase();
+    streamers = streamers.filter(s => (s.language || '').toLowerCase() === l);
+  }
+
+  // Build a map of active pool data per streamer for sorting / enrichment
+  let poolByStreamer = {};
+  try {
+    const activePools = await dbAll(`
+      SELECT streamer, MAX(created_at) AS created_at, MAX(ist_betrag) AS ist_betrag
+      FROM pools WHERE status IN ('open','pending_creator') GROUP BY streamer`);
+    for (const p of activePools) {
+      poolByStreamer[p.streamer.toLowerCase()] = { created_at: p.created_at, ist_betrag: p.ist_betrag };
+    }
+  } catch (e) { console.error('[LIVE-STREAMERS] pool query:', e.message); }
+
+  const sortKey = sort || 'viewers';
+  const copy = streamers.slice();
+  if (sortKey === 'newest_pools') {
+    copy.sort((a, b) => {
+      const pa = poolByStreamer[a.user_login.toLowerCase()];
+      const pb = poolByStreamer[b.user_login.toLowerCase()];
+      const ta = pa ? new Date(pa.created_at).getTime() : 0;
+      const tb = pb ? new Date(pb.created_at).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return b.viewer_count - a.viewer_count;
+    });
+  } else if (sortKey === 'most_funded') {
+    copy.sort((a, b) => {
+      const fa = poolByStreamer[a.user_login.toLowerCase()]?.ist_betrag || 0;
+      const fb = poolByStreamer[b.user_login.toLowerCase()]?.ist_betrag || 0;
+      if (fb !== fa) return fb - fa;
+      return b.viewer_count - a.viewer_count;
+    });
+  } else {
+    copy.sort((a, b) => b.viewer_count - a.viewer_count);
+  }
+
+  res.json({ streamers: copy });
 });
 
 app.get('/api/pools', async (req, res) => {

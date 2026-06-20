@@ -53,6 +53,11 @@
     .btn-green { background: var(--green); }
     .btn-green:hover { background: #00b04a; }
 
+    /* ── Filter bar ── */
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+    .filter-select { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; cursor: pointer; outline: none; }
+    .filter-select:focus { border-color: var(--purple); }
+
     /* ── Stream grid ── */
     .stream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
     .stream-card { background: var(--card); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform .15s, box-shadow .15s; border: 1px solid var(--border); }
@@ -167,6 +172,29 @@
     <div class="section-head">
       <div class="section-title">Live auf Twitch <span id="streamCount" style="font-size:13px;color:var(--muted);font-weight:400"></span></div>
       <button class="btn btn-sm" onclick="showCreateModal()">+ Neuer Pool</button>
+    </div>
+    <div class="filter-bar">
+      <select id="filterGame" class="filter-select" onchange="loadStreams()">
+        <option value="">Alle Kategorien</option>
+        <option value="Just Chatting">Just Chatting</option>
+        <option value="Fortnite">Fortnite</option>
+        <option value="League of Legends">League of Legends</option>
+        <option value="Minecraft">Minecraft</option>
+        <option value="Valorant">Valorant</option>
+      </select>
+      <select id="filterLang" class="filter-select" onchange="loadStreams()">
+        <option value="">Alle Sprachen</option>
+        <option value="en">EN</option>
+        <option value="de">DE</option>
+        <option value="fr">FR</option>
+        <option value="es">ES</option>
+        <option value="pt">PT</option>
+      </select>
+      <select id="filterSort" class="filter-select" onchange="loadStreams()">
+        <option value="viewers">Meiste Zuschauer</option>
+        <option value="newest_pools">Neueste Pools</option>
+        <option value="most_funded">Meiste Funding</option>
+      </select>
     </div>
     <div id="streamGrid" class="stream-grid">
       <div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--muted)">
@@ -300,7 +328,14 @@
   /* ─── Load streams ───────────────────────────────────────────────────────── */
   async function loadStreams() {
     try {
-      const data = await apiFetch('/api/live-streamers');
+      const game = document.getElementById('filterGame')?.value || '';
+      const lang = document.getElementById('filterLang')?.value || '';
+      const sort = document.getElementById('filterSort')?.value || 'viewers';
+      const qs = new URLSearchParams();
+      if (game) qs.set('game', game);
+      if (lang) qs.set('lang', lang);
+      if (sort) qs.set('sort', sort);
+      const data = await apiFetch('/api/live-streamers?' + qs.toString());
       streams = data.streamers || [];
       renderStreams();
     } catch (e) {
