@@ -259,8 +259,11 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
 
   await page.screenshot({ path: '/tmp/streamlabs-filled.png', fullPage: true });
 
-  const donateBtn = page.locator('button:has-text("Donate"), button.button--action').first();
-  if (!await donateBtn.isVisible({ timeout: 3_000 }).catch(() => false)) return;
+  const donateBtn = page.locator('button:has-text("Donate"), button:has-text("Tip"), button.button--action').first();
+  if (!await donateBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    console.log('[BOT] Streamlabs: Donate-Button nicht gefunden — Abbruch');
+    throw new Error('Streamlabs Donate-Button nicht gefunden');
+  }
 
   await donateBtn.click();
   await page.waitForTimeout(4000);
