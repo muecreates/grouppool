@@ -265,33 +265,80 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     throw new Error('Streamlabs Donate-Button nicht gefunden');
   }
 
-  await donateBtn.click();
-  await page.waitForTimeout(4000);
-  await checkCaptcha(page);
+  console.log('[BOT] Donate-Button gefunden — klicke...');
 
-  // PayPal-Button im Modal
-  const paypalBtn = page.locator('.paypal-buttons, [class*="paypal"]').first();
-  if (await paypalBtn.isVisible({ timeout: 4_000 }).catch(() => false)) {
-    await page.screenshot({ path: '/tmp/streamlabs-payment-filled.png', fullPage: true });
-    const [popup] = await Promise.all([
-      context.waitForEvent('page', { timeout: 8_000 }).catch(() => null),
-      paypalBtn.click(),
-    ]);
-    if (popup) {
-      await popup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
-      console.log('[BOT] PayPal-Popup:', popup.url());
-      await checkCaptcha(popup);
-      const cardBtn2 = popup.locator('button:has-text("Debit"), button:has-text("Kredit")').first();
-      if (await cardBtn2.isVisible({ timeout: 10_000 }).catch(() => false)) {
-        await cardBtn2.click();
-        await popup.waitForTimeout(2000);
-        await fillPayPalCardForm(popup);
-        await clickSubmit(popup, 'button:has-text("Zustimmen und weiter")', 'PayPal Submit');
-      }
-    }
+  // ── STEP 2: click Donate, listen for popup simultaneously ────────────────
+  const [popup] = await Promise.all([
+    context.waitForEvent('page', { timeout: 10_000 }).catch(() => null),
+    donateBtn.click(),
+  ]);
+
+  await page.waitForTimeout(3000);
+  await checkCaptcha(page);
+  await page.screenshot({ path: '/tmp/streamlabs-after-donate.png', fullPage: true });
+
+  // ── STEP 3: find "Debit or Credit Card" button in modal/popup/frames ─────
+  let ppCtx = page;
+  if (popup) {
+    await popup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    console.log('[BOT] PayPal Popup geladen:', popup.url());
+    await checkCaptcha(popup);
+    ppCtx = popup;
   } else {
-    await page.screenshot({ path: '/tmp/streamlabs-payment-filled.png', fullPage: true });
+    console.log('[BOT] Kein Popup — suche PayPal-Modal auf Hauptseite...');
   }
+
+  const CARD_BTN_SEL = [
+    'button:has-text("Debit or Credit Card")',
+    'button:has-text("Debit or credit card")',
+    'button:has-text("Credit Card")',
+    'button:has-text("Debit")',
+    '[data-funding-source="card"]',
+  ].join(', ');
+
+  // PayPal buttons often live inside iframes — check page and all frames
+  let cardBtn = null;
+  for (const frame of [ppCtx, ...ppCtx.frames()]) {
+    try {
+      const loc = frame.locator(CARD_BTN_SEL).first();
+      if (await loc.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        cardBtn = loc;
+        console.log('[BOT] "Debit or Credit Card" Button gefunden');
+        break;
+      }
+    } catch {}
+  }
+
+  if (!cardBtn) {
+    await ppCtx.screenshot({ path: '/tmp/streamlabs-paypal-modal.png', fullPage: true });
+    throw new Error('PayPal "Debit or Credit Card" Button nicht gefunden (Screenshot: /tmp/streamlabs-paypal-modal.png)');
+  }
+
+  // ── STEP 4: click card button, watch for card-form popup ─────────────────
+  const [cardPopup] = await Promise.all([
+    context.waitForEvent('page', { timeout: 8_000 }).catch(() => null),
+    cardBtn.click(),
+  ]);
+
+  const formCtx = cardPopup || ppCtx;
+  if (cardPopup) {
+    await cardPopup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    console.log('[BOT] Karten-Popup geladen:', cardPopup.url());
+    await checkCaptcha(cardPopup);
+  } else {
+    await ppCtx.waitForTimeout(2000);
+  }
+
+  // ── STEP 5: fill card details + submit ───────────────────────────────────
+  console.log('\n[BOT] ── Kreditkartenformular (Streamlabs/PayPal) ──');
+  await formCtx.screenshot({ path: '/tmp/streamlabs-card-form.png', fullPage: true });
+  await fillPayPalCardForm(formCtx);
+  await checkCaptcha(formCtx);
+  await clickSubmit(
+    formCtx,
+    'button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Pay Now"), button:has-text("Continue")',
+    'PayPal Karten-Submit'
+  );
 }
 
 // ── StreamElements ────────────────────────────────────────────────────────────
