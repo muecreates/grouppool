@@ -223,7 +223,7 @@ async function fillPayPalCardFields(cardFieldsFrame) {
     }
     await loc.click();
     await loc.fill('');
-    await cardFieldsFrame.keyboard.type(value, { delay: 60 });
+    await loc.type(value, { delay: 60 }); // loc.type dispatches keydown/keyup per char
     console.log(`[BOT] ${label} → "${value}" ✓`);
   };
 
