@@ -239,11 +239,16 @@ async function fillPayPalCardFields(cardFieldsFrame) {
   await typeIn('phone',                 phone,                          'phone');
   await typeIn('email',                 CARD.email,                     'email');
 
-  // Uncheck "ship to billing address" if present (avoids extra address form)
+  // Uncheck "ship to billing address" — click the label (it intercepts pointer events)
   const shipBox = cardFieldsFrame.locator('input[name="shipToBillingAddress"]').first();
   if (await shipBox.isVisible({ timeout: 1_000 }).catch(() => false) &&
       await shipBox.isChecked().catch(() => false)) {
-    await shipBox.uncheck();
+    const shipLabel = cardFieldsFrame.locator('label:has(input[name="shipToBillingAddress"]), label[for="shipToBillingAddress"]').first();
+    if (await shipLabel.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await shipLabel.click();
+    } else {
+      await shipBox.evaluate(el => el.click());
+    }
     console.log('[BOT] shipToBillingAddress deaktiviert ✓');
   }
 }
