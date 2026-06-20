@@ -220,9 +220,10 @@
       <input id="j-betrag" type="number" min="1" step="1" placeholder="10">
     </div>
     <div id="joinContribs" style="margin-top:4px;margin-bottom:8px;"></div>
+    <div id="feeNote" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('joinModal')">Abbrechen</button>
-      <button class="btn btn-green" id="joinSubmitBtn" onclick="submitJoin()">✅ Mitmachen (simuliert)</button>
+      <button class="btn btn-green" id="joinSubmitBtn" onclick="submitJoin()">💳 Jetzt bezahlen →</button>
     </div>
   </div>
 </div>
@@ -363,7 +364,7 @@
             ${isOpen
               ? `<button class="btn btn-sm btn-green" onclick="showJoinModal('${p.id}')">💸 Mitmachen</button>`
               : `<button class="btn btn-sm btn-outline" disabled>Beendet</button>`}
-            <button class="btn btn-sm btn-outline" onclick="showDetails('${p.id}')">Details</button>
+            <a class="btn btn-sm btn-outline" href="/pool.html?id=${p.id}">Details →</a>
           </div>
         </div>`;
     }).join('');
@@ -426,6 +427,7 @@
 
     document.getElementById('j-name').value   = '';
     document.getElementById('j-betrag').value = '';
+    document.getElementById('feeNote').textContent = '';
     document.getElementById('joinSubmitBtn').disabled = false;
 
     // load contributions
@@ -445,32 +447,38 @@
     openModal('joinModal');
   }
 
+  // Update fee note when amount changes
+  document.getElementById('j-betrag')?.addEventListener?.('input', function() {
+    const b = parseFloat(this.value);
+    const note = document.getElementById('feeNote');
+    if (b >= 1) note.textContent = `Du zahlst ${(b * 1.05).toFixed(2)} € inkl. 5% Servicegebühr`;
+    else note.textContent = '';
+  });
+
   async function submitJoin() {
     const teilnehmer_name = document.getElementById('j-name').value.trim();
     const betrag          = parseFloat(document.getElementById('j-betrag').value);
 
-    if (!teilnehmer_name || !betrag || betrag <= 0) {
-      toast('Bitte Name und Betrag eingeben.', 'error'); return;
+    if (!teilnehmer_name || !betrag || betrag < 1) {
+      toast('Mindestbetrag: 1 € und Name erforderlich.', 'error'); return;
     }
 
     const btn = document.getElementById('joinSubmitBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Sende…';
+    btn.innerHTML = '<span class="spinner"></span>Weiterleitung…';
 
     try {
-      const data = await apiFetch(`/pool/${activeJoinPoolId}/join`, {
+      const data = await apiFetch(`/pool/${activeJoinPoolId}/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teilnehmer_name, betrag }),
       });
-      closeModal('joinModal');
-      toast('✅ ' + (data.msg || 'Erfolgreich beigetreten!'), 'success');
-      await loadPools();
+      // Redirect to Stripe Checkout
+      window.location.href = data.url;
     } catch (e) {
       toast('❌ ' + e.message, 'error');
-    } finally {
       btn.disabled = false;
-      btn.innerHTML = '✅ Mitmachen (simuliert)';
+      btn.innerHTML = '💳 Jetzt bezahlen →';
     }
   }
 

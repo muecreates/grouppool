@@ -1,25 +1,16 @@
 # GroupPool – Fortschrittsdokumentation
 
-## Session 1 (abgeschlossen)
+## Session 3 — aktuell laufend
 
-| Aufgabe | Status | Ergebnis |
-|---------|--------|----------|
-| 1 – Streamlabs Payment-Modal | ✅ | PayPal-Button im Modal — Kreditkarte = Login |
-| 2 – resolveDonationUrl Reihenfolge | ✅ | Content-Check: SL → SE → TipeeeStream |
-| 3 – StreamElements Login | ✅ | ESC schließt Modal, Tip-Button = Login |
-| 4 – E2E Test eliasn97 | ✅ | Alle 9 Steps grün |
-| 5 – Frontend captcha_required | ✅ | Rote Badge + Pool-ID |
-| 6 – Admin-Endpoint | ✅ | POST /admin/pool/:id/manual-trigger |
-| 7 – Railway vorbereiten | ✅ | postinstall, .env.example |
-| 8 – README.md | ✅ | Setup + curl Beispiele |
-
-## Session 2 (aktuell)
-
-| Aufgabe | Status | Notiz |
-|---------|--------|-------|
-| 1 – Stripe Webhook | 🔄 In Arbeit | |
-| 2 – 2captcha einbinden | ⏳ | |
-| 3 – TEST_MODE Submit | ⏳ | |
-| 4 – Railway deployen | ⏳ | |
-| 5 – Pool-Queue | ⏳ | |
-| 6 – StreamElements testen | ⏳ | |
+| # | Aufgabe | Status |
+|---|---------|--------|
+| 1 | Stripe Checkout Flow + 5% Fee | 🔄 |
+| 2 | Pool-Detail-Seite /pool/:id | ⏳ |
+| 3 | Health-Monitor monitor.js | ⏳ |
+| 4 | Streamer-Link Cache SQLite | ⏳ |
+| 5 | Bot-Robustheit + bot_logs | ⏳ |
+| 6 | Admin Dashboard /admin | ⏳ |
+| 7 | Fee-Logik + Mindestbetrag 1€ | ⏳ |
+| 8 | Telegram Notifications | ⏳ |
+| 9 | Railway production ready | ⏳ |
+| 10 | Testplan in PROGRESS.md | ⏳ |

@@ -2,172 +2,90 @@ require('dotenv').config();
 const { runBotDonation } = require('./bot');
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const fetch = require('node-fetch');
-const path = require('path');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
+const fetch   = require('node-fetch');
+const path    = require('path');
+const stripe  = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2026-05-27.dahlia',
 });
 
 const app = express();
-
 app.use('/webhook/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
-const fs = require('fs');
 const DB_PATH = './grouppool.db';
 console.log(`[DB] Opening database at ${DB_PATH}`);
-
 const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('[DB] Failed to open database:', err.message);
-  } else {
-    console.log('[DB] Connected successfully');
-  }
+  if (err) console.error('[DB] Failed:', err.message);
+  else console.log('[DB] Connected');
 });
 
 db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS pools (
-      id          TEXT PRIMARY KEY,
-      streamer    TEXT NOT NULL,
-      gruppe_name TEXT NOT NULL,
-      message     TEXT NOT NULL,
-      ziel_betrag REAL NOT NULL,
-      ist_betrag  REAL NOT NULL DEFAULT 0,
-      status      TEXT NOT NULL DEFAULT 'open',
-      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `, (err) => { if (err) console.error('[DB] pools table error:', err.message); });
-  db.run(`
-    CREATE TABLE IF NOT EXISTS contributions (
-      id              TEXT PRIMARY KEY,
-      pool_id         TEXT NOT NULL,
-      teilnehmer_name TEXT NOT NULL,
-      betrag          REAL NOT NULL,
-      stripe_session  TEXT,
-      status          TEXT NOT NULL DEFAULT 'pending',
-      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (pool_id) REFERENCES pools(id)
-    )
-  `, (err) => { if (err) console.error('[DB] contributions table error:', err.message); });
+  db.run(`CREATE TABLE IF NOT EXISTS pools (
+    id TEXT PRIMARY KEY, streamer TEXT NOT NULL, gruppe_name TEXT NOT NULL,
+    message TEXT NOT NULL, ziel_betrag REAL NOT NULL, ist_betrag REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS contributions (
+    id TEXT PRIMARY KEY, pool_id TEXT NOT NULL, teilnehmer_name TEXT NOT NULL,
+    betrag REAL NOT NULL, stripe_session TEXT, status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY (pool_id) REFERENCES pools(id)
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS platform_status (
+    platform TEXT PRIMARY KEY, healthy INTEGER NOT NULL DEFAULT 1,
+    last_check TEXT, last_error TEXT, degraded_since TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS streamer_links (
+    streamer TEXT NOT NULL, platform TEXT NOT NULL, url TEXT NOT NULL,
+    last_checked TEXT NOT NULL, PRIMARY KEY (streamer, platform)
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS bot_logs (
+    id TEXT PRIMARY KEY, pool_id TEXT, timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    platform TEXT, status TEXT, message TEXT
+  )`);
+  // Seed platform_status rows
+  ['streamlabs','tipeeestream','streamelements','twitch'].forEach(p =>
+    db.run(`INSERT OR IGNORE INTO platform_status (platform) VALUES (?)`, [p])
+  );
 });
 
-function dbGet(sql, params) {
-  return new Promise((resolve, reject) =>
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)))
-  );
+function dbGet(sql, params = []) {
+  return new Promise((res, rej) => db.get(sql, params, (e, r) => e ? rej(e) : res(r)));
 }
-function dbAll(sql, params) {
-  return new Promise((resolve, reject) =>
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)))
-  );
+function dbAll(sql, params = []) {
+  return new Promise((res, rej) => db.all(sql, params, (e, r) => e ? rej(e) : res(r)));
 }
-function dbRun(sql, params) {
-  return new Promise((resolve, reject) =>
-    db.run(sql, params, function (err) { err ? reject(err) : resolve(this); })
-  );
+function dbRun(sql, params = []) {
+  return new Promise((res, rej) => db.run(sql, params, function(e) { e ? rej(e) : res(this); }));
 }
-function uid() {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
+function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 
-// ── Twitch panel scraper ──────────────────────────────────────────────────────
+// ── Telegram ──────────────────────────────────────────────────────────────────
 
-const DONATION_DOMAINS = ['streamlabs.com', 'tipeeestream.com', 'streamelements.com'];
-
-async function scrapeStreamlabsLink(twitchUsername) {
-  const { chromium } = require('playwright');
-  let browser;
+async function sendTelegram(msg) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat  = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return;
   try {
-    browser = await chromium.launch({ headless: true });
-    const ctx = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      locale: 'de-DE',
-    });
-    const page = await ctx.newPage();
-    await page.goto(`https://www.twitch.tv/${twitchUsername}/about`, {
-      waitUntil: 'networkidle',
-      timeout: 30_000,
-    });
-
-    // dismiss cookie/consent overlay if present
-    const consentBtn = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), button[data-a-target="consent-banner-accept"]');
-    await consentBtn.click({ timeout: 3_000 }).catch(() => {});
-
-    // scroll down in steps to trigger lazy-loading of panels
-    for (let i = 0; i < 4; i++) {
-      await page.evaluate((step) => window.scrollBy(0, step * 600), i + 1);
-      await page.waitForTimeout(800);
-    }
-
-    // wait for at least one panel link to appear (best-effort)
-    await page.waitForSelector('.channel-panels-container a, [data-target="channel-panels"] a', { timeout: 5_000 }).catch(() => {});
-
-    const hrefs = await page.$$eval('a[href], iframe[src]', (els) =>
-      els.map((el) => el.href || el.src).filter(Boolean)
-    );
-    console.log(`[SCRAPE] ${hrefs.length} Links gefunden auf twitch.tv/${twitchUsername}/about`);
-    // Match: bekannte Donation-Domains ODER /tip-Pfad auf fremden Domains (nicht twitch.tv selbst)
-    const found = hrefs.find((href) =>
-      DONATION_DOMAINS.some((d) => href.includes(d)) ||
-      (href.includes('/tip') && !href.includes('twitch.tv') && !href.includes('twitter'))
-    );
-    return found ?? null;
-  } catch (err) {
-    console.error(`[SCRAPE] Fehler bei ${twitchUsername}:`, err.message);
-    return null;
-  } finally {
-    if (browser) await browser.close();
-  }
-}
-
-// ── Streamlabs ────────────────────────────────────────────────────────────────
-
-async function sendStreamlabsDonation({ name, message, amount, currency = 'EUR' }) {
-  const token = process.env.STREAMLABS_ACCESS_TOKEN;
-  if (!token) return { skipped: true, reason: 'no token' };
-  const params = new URLSearchParams({ access_token: token, name, message, amount, currency, identifier: 'grouppool@donation' });
-  try {
-    const res = await fetch('https://streamlabs.com/api/v2.0/donations', {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chat, text: msg, parse_mode: 'HTML' }),
     });
-    const data = await res.json().catch(() => ({}));
-    return data;
-  } catch (err) {
-    return { skipped: true, reason: 'network_error' };
-  }
-}
-
-async function sendStreamlabsAlert(message) {
-  const token = process.env.STREAMLABS_ACCESS_TOKEN;
-  if (!token) return { skipped: true, reason: 'no token' };
-  const params = new URLSearchParams({ access_token: token, type: 'donation', message });
-  try {
-    const res = await fetch('https://streamlabs.com/api/v2.0/alerts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-    return await res.json().catch(() => ({}));
-  } catch (err) {
-    return { skipped: true, reason: 'network_error' };
-  }
+  } catch {}
 }
 
 // ── Twitch ────────────────────────────────────────────────────────────────────
 
-const TWITCH_CLIENT_ID     = process.env.TWITCH_CLIENT_ID || '6jmi6nxcfqg5fgijmx6d66t3di6amo';
+const TWITCH_CLIENT_ID     = process.env.TWITCH_CLIENT_ID || '';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
-let twitchTokenCache   = null;
-let liveStreamerCache   = { streamers: [], expires: 0 };
+let twitchTokenCache = null;
+let liveStreamerCache = { streamers: [], expires: 0 };
 
 async function getTwitchToken() {
-  if (twitchTokenCache && twitchTokenCache.expires > Date.now()) return twitchTokenCache.token;
+  if (twitchTokenCache?.expires > Date.now()) return twitchTokenCache.token;
   if (!TWITCH_CLIENT_SECRET) return null;
   const res  = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${TWITCH_CLIENT_ID}&client_secret=${TWITCH_CLIENT_SECRET}&grant_type=client_credentials`, { method: 'POST' });
   const data = await res.json();
@@ -182,7 +100,7 @@ async function fetchLiveStreamers() {
   if (!token) return [];
   try {
     const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
-    const r1 = await fetch('https://api.twitch.tv/helix/streams?first=50', { headers });
+    const r1 = await fetch('https://api.twitch.tv/helix/streams?first=100', { headers });
     const d1 = await r1.json();
     const streamers = (d1.data || []).map(s => ({
       user_name: s.user_name, user_login: s.user_login, viewer_count: s.viewer_count, title: s.title
@@ -192,91 +110,122 @@ async function fetchLiveStreamers() {
   } catch { return liveStreamerCache.streamers; }
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// ── Streamlabs API ────────────────────────────────────────────────────────────
 
-app.get('/api/live-streamers', async (req, res) => {
-  const streamers = await fetchLiveStreamers();
-  res.json({ streamers });
-});
+async function sendStreamlabsDonation({ name, message, amount, currency = 'EUR' }) {
+  const token = process.env.STREAMLABS_ACCESS_TOKEN;
+  if (!token) return { skipped: true };
+  try {
+    const res = await fetch('https://streamlabs.com/api/v2.0/donations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token: token, name, message, amount, currency, identifier: 'grouppool@donation' }).toString(),
+    });
+    return await res.json().catch(() => ({}));
+  } catch { return { skipped: true }; }
+}
 
-app.get('/api/pools', async (req, res) => {
-  const pools = await dbAll("SELECT p.*, COUNT(CASE WHEN c.status = 'paid' THEN 1 END) AS contributor_count FROM pools p LEFT JOIN contributions c ON c.pool_id = p.id WHERE p.status = 'open' GROUP BY p.id ORDER BY p.created_at DESC", []);
-  res.json({ pools });
-});
+async function sendStreamlabsAlert(message) {
+  const token = process.env.STREAMLABS_ACCESS_TOKEN;
+  if (!token) return { skipped: true };
+  try {
+    const res = await fetch('https://streamlabs.com/api/v2.0/alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ access_token: token, type: 'donation', message }).toString(),
+    });
+    return await res.json().catch(() => ({}));
+  } catch { return { skipped: true }; }
+}
 
-app.post('/pool/create', async (req, res) => {
-  const { streamer, ziel_betrag, message, gruppe_name } = req.body;
-  if (!streamer || !ziel_betrag || !message || !gruppe_name) return res.status(400).json({ error: 'Fehlende Felder' });
-  const id = uid();
-  await dbRun('INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag) VALUES (?, ?, ?, ?, ?)', [id, streamer, gruppe_name, message, Number(ziel_betrag)]);
-  res.status(201).json({ success: true, pool: { id, streamer, gruppe_name, message, ziel_betrag } });
-});
+// ── Streamer-Link Cache (AUFGABE 4) ───────────────────────────────────────────
 
-app.get('/pool/:id', async (req, res) => {
-  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
-  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
-  const contributions = await dbAll('SELECT * FROM contributions WHERE pool_id = ?', [req.params.id]);
-  res.json({ pool, contributions });
-});
+const DONATION_DOMAINS = ['streamlabs.com', 'tipeeestream.com', 'streamelements.com'];
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
-app.post('/pool/:id/join', async (req, res) => {
-  const { teilnehmer_name, betrag } = req.body;
-  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
-  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
-  
-  const contrib_id = uid();
-  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'paid')", [contrib_id, pool.id, teilnehmer_name, Number(betrag)]);
-  await dbRun('UPDATE pools SET ist_betrag = ist_betrag + ? WHERE id = ?', [Number(betrag), pool.id]);
-
-  const updated = await dbGet('SELECT * FROM pools WHERE id = ?', [pool.id]);
-  if (updated.ist_betrag >= updated.ziel_betrag && updated.status === 'open') {
-    await triggerPool(pool.id);
+async function getCachedLink(streamer) {
+  const rows = await dbAll('SELECT * FROM streamer_links WHERE streamer = ? ORDER BY last_checked DESC', [streamer]);
+  for (const row of rows) {
+    if (Date.now() - new Date(row.last_checked).getTime() < CACHE_TTL_MS) {
+      console.log(`[CACHE] Hit for ${streamer}: ${row.url}`);
+      return row.url;
+    }
   }
-  res.json({ success: true, msg: 'Simuliert erfolgreich' });
-});
+  return null;
+}
+
+async function setCachedLink(streamer, platform, url) {
+  await dbRun(`INSERT OR REPLACE INTO streamer_links (streamer, platform, url, last_checked) VALUES (?, ?, ?, datetime('now'))`,
+    [streamer, platform, url]);
+}
+
+async function scrapeStreamlabsLink(twitchUsername) {
+  const { chromium } = require('playwright');
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const ctx  = await browser.newContext({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36', locale: 'de-DE' });
+    const page = await ctx.newPage();
+    await page.goto(`https://www.twitch.tv/${twitchUsername}/about`, { waitUntil: 'networkidle', timeout: 30_000 });
+    const consentBtn = page.locator('button:has-text("Akzeptieren"), button:has-text("Accept"), button[data-a-target="consent-banner-accept"]');
+    await consentBtn.click({ timeout: 3_000 }).catch(() => {});
+    for (let i = 0; i < 4; i++) { await page.evaluate(s => window.scrollBy(0, s * 600), i + 1); await page.waitForTimeout(800); }
+    await page.waitForSelector('.channel-panels-container a, [data-target="channel-panels"] a', { timeout: 5_000 }).catch(() => {});
+    const hrefs = await page.$$eval('a[href], iframe[src]', els => els.map(el => el.href || el.src).filter(Boolean));
+    console.log(`[SCRAPE] ${hrefs.length} Links auf twitch.tv/${twitchUsername}/about`);
+    const found = hrefs.find(h => DONATION_DOMAINS.some(d => h.includes(d)) || (h.includes('/tip') && !h.includes('twitch.tv') && !h.includes('twitter')));
+    if (found) {
+      const platform = found.includes('streamlabs') ? 'streamlabs' : found.includes('streamelements') ? 'streamelements' : 'tipeeestream';
+      await setCachedLink(twitchUsername, platform, found);
+    }
+    return found ?? null;
+  } catch (err) {
+    console.error(`[SCRAPE] Fehler bei ${twitchUsername}:`, err.message);
+    return null;
+  } finally {
+    if (browser) await browser.close();
+  }
+}
 
 async function checkUrlValid(url, bodySignal) {
   try {
-    const res = await fetch(url, {
-      method: 'GET', redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(7000),
-    });
+    const res = await fetch(url, { method: 'GET', redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(7000) });
     if (!res.ok) return false;
-    const body = await res.text();
-    return body.includes(bodySignal);
+    return (await res.text()).includes(bodySignal);
   } catch { return false; }
 }
 
 async function resolveDonationUrl(streamer) {
-  // 1. Twitch-Panels scrapen — gibt echten Link zurück falls im Panel verlinkt
-  const scraped = await scrapeStreamlabsLink(streamer);
-  if (scraped) {
-    console.log(`[RESOLVE] Gescrapeter Link: ${scraped}`);
-    return scraped;
-  }
+  // 1. Cache prüfen
+  const cached = await getCachedLink(streamer);
+  if (cached) return cached;
 
-  // 2. Fallback 1: Streamlabs — nur wenn Seite echtes Tip-Formular enthält
+  // 2. Twitch-Panels scrapen
+  const scraped = await scrapeStreamlabsLink(streamer);
+  if (scraped) { console.log(`[RESOLVE] Gescrapeter Link: ${scraped}`); return scraped; }
+
+  // 3. Streamlabs Content-Check
   const slUrl = `https://streamlabs.com/${streamer}/tip`;
   if (await checkUrlValid(slUrl, 'tip-user-input')) {
-    console.log(`[RESOLVE] Streamlabs-Fallback: ${slUrl}`);
-    return slUrl;
+    await setCachedLink(streamer, 'streamlabs', slUrl);
+    console.log(`[RESOLVE] Streamlabs: ${slUrl}`); return slUrl;
   }
 
-  // 3. Fallback 2: StreamElements — nur wenn Seite tipperUsername-Feld enthält
+  // 4. StreamElements Content-Check
   const seUrl = `https://streamelements.com/${streamer}/tip`;
   if (await checkUrlValid(seUrl, 'tipperUsername')) {
-    console.log(`[RESOLVE] StreamElements-Fallback: ${seUrl}`);
-    return seUrl;
+    await setCachedLink(streamer, 'streamelements', seUrl);
+    console.log(`[RESOLVE] StreamElements: ${seUrl}`); return seUrl;
   }
 
-  // 4. Fallback 3: TipeeeStream — sicherer letzter Fallback
+  // 5. TipeeeStream Fallback
   const tipeeeUrl = `https://www.tipeeestream.com/${streamer}/donation`;
+  await setCachedLink(streamer, 'tipeeestream', tipeeeUrl);
   console.log(`[RESOLVE] TipeeeStream-Fallback: ${tipeeeUrl}`);
   return tipeeeUrl;
 }
 
-// ── Pool-Queue (verhindert parallele Bot-Instanzen) ───────────────────────────
+// ── Pool Queue ────────────────────────────────────────────────────────────────
 
 let botActive = false;
 const botQueue = [];
@@ -284,14 +233,14 @@ const botQueue = [];
 async function processNextInQueue() {
   if (botQueue.length === 0) { botActive = false; return; }
   const nextId = botQueue.shift();
-  console.log(`[QUEUE] Starte nächsten Pool aus Queue: ${nextId} (${botQueue.length} verbleibend)`);
+  console.log(`[QUEUE] Nächster Pool: ${nextId} (${botQueue.length} verbleibend)`);
   await _runTrigger(nextId);
 }
 
 async function triggerPool(poolId) {
   if (botActive) {
     botQueue.push(poolId);
-    console.log(`[QUEUE] Bot beschäftigt – Pool ${poolId} eingereiht (Position ${botQueue.length})`);
+    console.log(`[QUEUE] Pool ${poolId} eingereiht (Position ${botQueue.length})`);
     return { success: true, queued: true };
   }
   botActive = true;
@@ -302,30 +251,139 @@ async function triggerPool(poolId) {
 async function _runTrigger(poolId) {
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
   const contributors = await dbAll("SELECT teilnehmer_name FROM contributions WHERE pool_id = ? AND status = 'paid'", [poolId]);
-  const names = contributors.map((c) => c.teilnehmer_name).join(', ');
+  const names = contributors.map(c => c.teilnehmer_name).join(', ');
   const donationMessage = `${pool.gruppe_name}: ${names} — ${pool.message}`;
 
   await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['triggered', poolId]);
 
   const donationUrl = await resolveDonationUrl(pool.streamer);
-  console.log(`[TRIGGER] Finaler Donation-Link: ${donationUrl}`);
+  const platform = donationUrl.includes('streamlabs') ? 'streamlabs' : donationUrl.includes('streamelements') ? 'streamelements' : 'tipeeestream';
+  console.log(`[TRIGGER] ${poolId} → ${donationUrl}`);
 
-  runBotDonation(pool.streamer, pool.ist_betrag, donationMessage, pool.gruppe_name, donationUrl)
-    .catch(async (err) => {
-      if (err.message === 'CAPTCHA_REQUIRED') {
-        console.log(`[CAPTCHA-REQUIRED] Pool ${poolId} — manuelle Zahlung nötig`);
-        await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['captcha_required', poolId]);
-      } else {
-        console.error('[BOT-TRIGGER] Fehler:', err.message);
-      }
-    })
-    .finally(() => processNextInQueue());
+  // Telegram: Bot gestartet
+  await sendTelegram(`🚀 <b>GroupPool Bot gestartet</b>\nPool: <code>${poolId}</code>\nStreamer: @${pool.streamer}\nBetrag: ${pool.ist_betrag.toFixed(2)} €\nPlattform: ${platform}`);
+
+  const logId = uid();
+  runBotDonation(pool.streamer, pool.ist_betrag, donationMessage, pool.gruppe_name, donationUrl,
+    async (status, msg) => {
+      await dbRun('INSERT INTO bot_logs (id, pool_id, platform, status, message) VALUES (?, ?, ?, ?, ?)',
+        [logId, poolId, platform, status, msg]);
+    }
+  )
+  .then(async () => {
+    await sendTelegram(`✅ <b>GroupPool Bot erfolgreich</b>\nStreamer: @${pool.streamer}\nBetrag: ${pool.ist_betrag.toFixed(2)} €\nPlattform: ${platform}`);
+  })
+  .catch(async (err) => {
+    if (err.message === 'CAPTCHA_REQUIRED') {
+      console.log(`[CAPTCHA-REQUIRED] Pool ${poolId}`);
+      await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['captcha_required', poolId]);
+      await dbRun('INSERT INTO bot_logs (id, pool_id, platform, status, message) VALUES (?, ?, ?, ?, ?)',
+        [uid(), poolId, platform, 'captcha', 'CAPTCHA blockiert']);
+      await sendTelegram(`🚨 <b>CAPTCHA blockiert Bot!</b>\nPool: <code>${poolId}</code>\nStreamer: @${pool.streamer}\nPlatform: ${platform}\n→ Manuelle Zahlung nötig`);
+    } else {
+      console.error('[BOT-TRIGGER] Fehler:', err.message);
+      await dbRun('INSERT INTO bot_logs (id, pool_id, platform, status, message) VALUES (?, ?, ?, ?, ?)',
+        [uid(), poolId, platform, 'error', err.message.slice(0, 500)]);
+    }
+  })
+  .finally(() => processNextInQueue());
 
   await Promise.all([
     sendStreamlabsDonation({ name: pool.gruppe_name, message: donationMessage, amount: pool.ist_betrag }),
     sendStreamlabsAlert(donationMessage),
   ]);
 }
+
+// ── Routes: Pools ─────────────────────────────────────────────────────────────
+
+app.get('/api/live-streamers', async (req, res) => {
+  res.json({ streamers: await fetchLiveStreamers() });
+});
+
+app.get('/api/pools', async (req, res) => {
+  const pools = await dbAll(`
+    SELECT p.*, COUNT(CASE WHEN c.status = 'paid' THEN 1 END) AS contributor_count
+    FROM pools p LEFT JOIN contributions c ON c.pool_id = p.id
+    GROUP BY p.id ORDER BY p.created_at DESC`);
+  res.json({ pools });
+});
+
+app.post('/pool/create', async (req, res) => {
+  const { streamer, ziel_betrag, message, gruppe_name } = req.body;
+  if (!streamer || !ziel_betrag || !message || !gruppe_name)
+    return res.status(400).json({ error: 'Fehlende Felder' });
+  if (Number(ziel_betrag) < 1)
+    return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  const id = uid();
+  await dbRun('INSERT INTO pools (id, streamer, gruppe_name, message, ziel_betrag) VALUES (?, ?, ?, ?, ?)',
+    [id, streamer, gruppe_name, message, Number(ziel_betrag)]);
+  res.status(201).json({ success: true, pool: { id, streamer, gruppe_name, message, ziel_betrag } });
+});
+
+app.get('/pool/:id', async (req, res) => {
+  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
+  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
+  const contributions = await dbAll("SELECT * FROM contributions WHERE pool_id = ? AND status = 'paid' ORDER BY created_at ASC", [req.params.id]);
+  res.json({ pool, contributions });
+});
+
+// Simulierter Join (bleibt für Tests)
+app.post('/pool/:id/join', async (req, res) => {
+  const { teilnehmer_name, betrag } = req.body;
+  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
+  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
+  if (Number(betrag) < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  const cid = uid();
+  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'paid')",
+    [cid, pool.id, teilnehmer_name, Number(betrag)]);
+  await dbRun('UPDATE pools SET ist_betrag = ist_betrag + ? WHERE id = ?', [Number(betrag), pool.id]);
+  const updated = await dbGet('SELECT * FROM pools WHERE id = ?', [pool.id]);
+  if (updated.ist_betrag >= updated.ziel_betrag && updated.status === 'open') await triggerPool(pool.id);
+  res.json({ success: true, msg: 'Simuliert erfolgreich' });
+});
+
+// ── Stripe Checkout (AUFGABEN 1 + 7) ─────────────────────────────────────────
+
+const FEE_RATE = 0.05; // 5%
+
+app.post('/pool/:id/checkout', async (req, res) => {
+  const { teilnehmer_name, betrag } = req.body;
+  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
+  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
+  if (!teilnehmer_name) return res.status(400).json({ error: 'Name erforderlich' });
+  const amount = Number(betrag);
+  if (!amount || amount < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+
+  const amountWithFee = Math.round(amount * (1 + FEE_RATE) * 100); // Cents inkl. 5% Fee
+  const cid  = uid();
+  const base = process.env.BASE_URL || 'http://localhost:3001';
+
+  // Contribution ohne Fee speichern
+  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'pending')",
+    [cid, pool.id, teilnehmer_name, amount]);
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: { name: `GroupPool: ${pool.gruppe_name} → @${pool.streamer}`, description: `inkl. 5% Servicegebühr` },
+          unit_amount: amountWithFee,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${base}/pool.html?id=${pool.id}&success=1`,
+      cancel_url:  `${base}/pool.html?id=${pool.id}&cancel=1`,
+      metadata: { pool_id: pool.id, teilnehmer_name, contrib_id: cid, betrag_original: String(amount) },
+    });
+    await dbRun('UPDATE contributions SET stripe_session = ? WHERE id = ?', [session.id, cid]);
+    res.json({ url: session.url, amount_with_fee: (amountWithFee / 100).toFixed(2) });
+  } catch (err) {
+    await dbRun('DELETE FROM contributions WHERE id = ?', [cid]);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── Stripe Webhook ────────────────────────────────────────────────────────────
 
@@ -335,18 +393,18 @@ app.post('/webhook/stripe', async (req, res) => {
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
-    console.error('[WEBHOOK] Signature-Fehler:', err.message);
+    console.error('[WEBHOOK] Sig-Fehler:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const poolId  = session.metadata?.pool_id;
+    const session   = event.data.object;
+    const poolId    = session.metadata?.pool_id;
     const teilnehmer = session.metadata?.teilnehmer_name || 'Anonym';
-    const betrag  = (session.amount_total || 0) / 100;
-    console.log(`[WEBHOOK] checkout.session.completed | Pool: ${poolId} | €${betrag}`);
+    const betrag    = parseFloat(session.metadata?.betrag_original || '0'); // ohne Fee!
+    console.log(`[WEBHOOK] paid | Pool: ${poolId} | €${betrag}`);
 
-    if (poolId) {
+    if (poolId && betrag > 0) {
       try {
         const existing = await dbGet('SELECT * FROM contributions WHERE stripe_session = ?', [session.id]);
         if (existing) {
@@ -358,78 +416,65 @@ app.post('/webhook/stripe', async (req, res) => {
         }
         await dbRun('UPDATE pools SET ist_betrag = ist_betrag + ? WHERE id = ?', [betrag, poolId]);
         const updated = await dbGet('SELECT * FROM pools WHERE id = ?', [poolId]);
-        if (updated?.status === 'open' && updated.ist_betrag >= updated.ziel_betrag) {
-          await triggerPool(poolId);
-        }
+        if (updated?.status === 'open' && updated.ist_betrag >= updated.ziel_betrag) await triggerPool(poolId);
       } catch (err) {
-        console.error('[WEBHOOK] Fehler bei Pool-Update:', err.message);
+        console.error('[WEBHOOK] Fehler:', err.message);
       }
     }
   }
   res.json({ received: true });
 });
 
-// ── Stripe Checkout Session erstellen ─────────────────────────────────────────
-
-app.post('/pool/:id/checkout', async (req, res) => {
-  const { teilnehmer_name, betrag } = req.body;
-  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
-  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
-  if (!teilnehmer_name || !betrag || Number(betrag) <= 0)
-    return res.status(400).json({ error: 'Name und Betrag erforderlich' });
-
-  const cid = uid();
-  await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'pending')",
-    [cid, pool.id, teilnehmer_name, Number(betrag)]);
-
-  const base = process.env.BASE_URL || 'http://localhost:3001';
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          product_data: { name: `GroupPool: ${pool.gruppe_name} → @${pool.streamer}` },
-          unit_amount: Math.round(Number(betrag) * 100),
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      success_url: `${base}/?success=1&pool=${pool.id}`,
-      cancel_url:  `${base}/?cancel=1&pool=${pool.id}`,
-      metadata: { pool_id: pool.id, teilnehmer_name, contrib_id: cid },
-    });
-    await dbRun('UPDATE contributions SET stripe_session = ? WHERE id = ?', [session.id, cid]);
-    res.json({ url: session.url, session_id: session.id });
-  } catch (err) {
-    await dbRun('DELETE FROM contributions WHERE id = ?', [cid]);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ── Admin Routes ──────────────────────────────────────────────────────────────
 
 function requireAdmin(req, res, next) {
   const secret = process.env.ADMIN_SECRET;
-  if (!secret || req.headers['x-admin-secret'] !== secret) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  if (!secret || req.headers['x-admin-secret'] !== secret) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
 
-app.post('/admin/pool/:id/manual-trigger', requireAdmin, async (req, res) => {
-  try {
-    const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
-    if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
-    await dbRun('UPDATE pools SET status = ? WHERE id = ?', ['triggered', req.params.id]);
-    console.log(`[ADMIN] Pool ${req.params.id} manuell auf 'triggered' gesetzt`);
-    res.json({ success: true, pool_id: req.params.id, status: 'triggered' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.get('/admin', requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`GroupPool Backend läuft auf http://localhost:${PORT}`);
+app.post('/admin/pool/:id/manual-trigger', requireAdmin, async (req, res) => {
+  const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
+  if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
+  await triggerPool(req.params.id);
+  res.json({ success: true, pool_id: req.params.id });
 });
+
+app.get('/api/admin/stats', requireAdmin, async (req, res) => {
+  const [pools, logs, platforms] = await Promise.all([
+    dbAll('SELECT * FROM pools ORDER BY created_at DESC LIMIT 50'),
+    dbAll("SELECT * FROM bot_logs WHERE timestamp > datetime('now', '-24 hours') ORDER BY timestamp DESC"),
+    dbAll('SELECT * FROM platform_status'),
+  ]);
+  res.json({ pools, logs, platforms });
+});
+
+// ── Pool Detail Page ──────────────────────────────────────────────────────────
+
+app.get('/pool.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'pool.html'));
+});
+
+// ── Start + Monitor ───────────────────────────────────────────────────────────
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, async () => {
+  console.log(`GroupPool läuft auf http://localhost:${PORT}`);
+  // Pre-cache top streamers at startup
+  try {
+    const streamers = await fetchLiveStreamers();
+    streamers.slice(0, 20).forEach(s =>
+      resolveDonationUrl(s.user_login).catch(() => {})
+    );
+    console.log(`[STARTUP] Pre-caching links für ${Math.min(20, streamers.length)} Streamer...`);
+  } catch {}
+  // Start monitor
+  try { require('./monitor').start(db, dbGet, dbAll, dbRun, sendTelegram, fetchLiveStreamers); }
+  catch (e) { console.error('[MONITOR] Start-Fehler:', e.message); }
+});
+
+module.exports = { db, dbGet, dbAll, dbRun, sendTelegram };

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GroupPool – Pool</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0e0e10; --surface: #18181b; --card: #1f1f23; --border: #2c2c35; --purple: #9146ff; --green: #00c853; --red: #eb0400; --text: #efeff1; --muted: #adadb8; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; gap: 12px; }
+    .logo { font-size: 18px; font-weight: 800; color: var(--purple); text-decoration: none; }
+    .main { max-width: 720px; margin: 0 auto; padding: 32px 20px 60px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    .streamer { font-size: 13px; color: var(--purple); font-weight: 700; margin-bottom: 4px; }
+    .gruppe { font-size: 24px; font-weight: 800; margin-bottom: 6px; }
+    .msg { font-size: 14px; color: var(--muted); font-style: italic; margin-bottom: 20px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; }
+    .badge.open { background: rgba(0,200,83,.15); color: var(--green); }
+    .badge.triggered { background: rgba(145,70,255,.15); color: var(--purple); }
+    .badge.captcha_required { background: rgba(235,4,0,.15); color: var(--red); }
+    .badge.closed { background: rgba(173,173,184,.15); color: var(--muted); }
+    .progress-wrap { margin: 20px 0; }
+    .progress-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+    .progress-label strong { color: var(--text); font-size: 18px; }
+    .progress-bar { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--purple); border-radius: 5px; transition: width .5s; }
+    .progress-fill.done { background: var(--green); }
+    .meta { font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+    h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+    .contrib-list { list-style: none; }
+    .contrib-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .contrib-item:last-child { border: none; }
+    .contrib-name { font-weight: 600; }
+    .contrib-amount { color: var(--green); font-weight: 700; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; background: var(--purple); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 14px; text-decoration: none; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn.outline { background: none; border: 1px solid var(--border); color: var(--text); }
+    .btn.green { background: var(--green); }
+    .alert { background: rgba(235,4,0,.1); border: 1px solid var(--red); border-radius: 8px; padding: 14px 18px; font-size: 13px; color: var(--red); margin-bottom: 16px; }
+    .success-banner { background: rgba(0,200,83,.12); border: 1px solid var(--green); border-radius: 8px; padding: 14px 18px; font-size: 14px; color: var(--green); margin-bottom: 20px; font-weight: 600; }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .join-form { display: flex; flex-direction: column; gap: 14px; }
+    .field label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+    .field input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none; }
+    .field input:focus { border-color: var(--purple); }
+    .fee-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .fee-note strong { color: var(--text); }
+  </style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">🎯 GroupPool</a>
+  <span style="color:var(--muted);font-size:13px">Pool-Seite</span>
+</header>
+<div class="main">
+  <div id="root"><div style="padding:60px;text-align:center"><div class="spinner"></div></div></div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const poolId = params.get('id');
+const success = params.get('success');
+const cancel  = params.get('cancel');
+
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60_000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d > 0) return `vor ${d}d`;
+  if (h > 0) return `vor ${h}h`;
+  if (m > 0) return `vor ${m} Min`;
+  return 'gerade eben';
+}
+
+async function load() {
+  if (!poolId) { document.getElementById('root').innerHTML = '<p style="color:var(--red);padding:40px">Kein Pool angegeben.</p>'; return; }
+  try {
+    const res  = await fetch(`/pool/${poolId}`);
+    if (!res.ok) throw new Error('Pool nicht gefunden');
+    const { pool, contributions } = await res.json();
+    render(pool, contributions);
+  } catch (e) {
+    document.getElementById('root').innerHTML = `<div class="alert">❌ ${esc(e.message)}</div>`;
+  }
+}
+
+function render(pool, contribs) {
+  const pct  = Math.min(100, Math.round(pool.ist_betrag / pool.ziel_betrag * 100));
+  const done = pool.ist_betrag >= pool.ziel_betrag;
+  const isOpen = pool.status === 'open';
+  const statusLabel = { open: 'Offen', triggered: 'Ausgelöst!', captcha_required: '⚠ Manuelle Zahlung', closed: 'Geschlossen' }[pool.status] || pool.status;
+
+  const successBanner = success ? `<div class="success-banner">✅ Zahlung erfolgreich! Du wirst in der Teilnehmerliste aufgeführt.</div>` : '';
+  const cancelBanner  = cancel  ? `<div class="alert">Zahlung abgebrochen.</div>` : '';
+
+  const contribHtml = contribs.length
+    ? `<ul class="contrib-list">${contribs.map(c => `
+        <li class="contrib-item">
+          <span class="contrib-name">👤 ${esc(c.teilnehmer_name)}</span>
+          <span class="contrib-amount">+${c.betrag.toFixed(2)} €</span>
+        </li>`).join('')}</ul>`
+    : `<p style="color:var(--muted);font-size:13px">Noch keine Teilnehmer. Sei der Erste!</p>`;
+
+  const joinSection = isOpen ? `
+    <div class="card">
+      <h2>💸 Mitmachen</h2>
+      <div class="join-form">
+        <div class="field"><label>Dein Name</label><input id="j-name" placeholder="Dein Twitch-Name"></div>
+        <div class="field">
+          <label>Betrag (€)</label>
+          <input id="j-betrag" type="number" min="1" step="1" placeholder="10" oninput="updateFee()">
+          <div class="fee-note" id="fee-note">Mindestbetrag: 1 €</div>
+        </div>
+        <button class="btn green" id="joinBtn" onclick="joinPool()">Zur Kasse →</button>
+      </div>
+    </div>` : '';
+
+  document.getElementById('root').innerHTML = `
+    ${successBanner}${cancelBanner}
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div class="streamer">@${esc(pool.streamer)}</div>
+          <div class="gruppe">${esc(pool.gruppe_name)}</div>
+        </div>
+        <span class="badge ${pool.status}">${statusLabel}</span>
+      </div>
+      <div class="msg">"${esc(pool.message)}"</div>
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span><strong>${pool.ist_betrag.toFixed(2)} €</strong> gesammelt</span>
+          <span>Ziel: <strong>${pool.ziel_betrag.toFixed(2)} €</strong></span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill ${done?'done':''}" style="width:${pct}%"></div></div>
+      </div>
+      <div class="meta">
+        <span>👥 ${contribs.length} Teilnehmer</span>
+        <span>📊 ${pct}%</span>
+        <span>🕒 ${timeAgo(pool.created_at)}</span>
+        <span>Pool-ID: <code>${esc(pool.id)}</code></span>
+      </div>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn outline" onclick="share()">🔗 Link teilen</button>
+        <a class="btn outline" href="/">← Alle Pools</a>
+      </div>
+    </div>
+    <div class="card">
+      <h2>👥 Teilnehmer (${contribs.length})</h2>
+      ${contribHtml}
+    </div>
+    ${joinSection}
+  `;
+}
+
+function updateFee() {
+  const betrag = parseFloat(document.getElementById('j-betrag')?.value || 0);
+  const note   = document.getElementById('fee-note');
+  if (!note) return;
+  if (betrag >= 1) {
+    const total = (betrag * 1.05).toFixed(2);
+    note.innerHTML = `Du zahlst <strong>${total} €</strong> inkl. 5% Servicegebühr`;
+  } else {
+    note.innerHTML = 'Mindestbetrag: 1 €';
+  }
+}
+
+async function joinPool() {
+  const name   = document.getElementById('j-name')?.value.trim();
+  const betrag = parseFloat(document.getElementById('j-betrag')?.value);
+  if (!name) { alert('Bitte Namen eingeben.'); return; }
+  if (!betrag || betrag < 1) { alert('Mindestbetrag: 1 €'); return; }
+
+  const btn = document.getElementById('joinBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Weiterleitung…';
+
+  try {
+    const res  = await fetch(`/pool/${poolId}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teilnehmer_name: name, betrag }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Fehler');
+    window.location.href = data.url; // → Stripe Checkout
+  } catch (e) {
+    alert('Fehler: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Zur Kasse →';
+  }
+}
+
+function share() {
+  const url = location.href.split('?')[0];
+  navigator.clipboard?.writeText(url).then(() => alert('Link kopiert!')).catch(() => prompt('Link:', url));
+}
+
+load();
+</script>
+</body>
+</html>

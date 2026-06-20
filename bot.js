@@ -301,8 +301,18 @@ async function flowStreamElements(page, context, { amount, message, groupName })
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-async function runBotDonation(streamer, amount, message, groupName, donationUrl) {
+const STEP_TIMEOUT = 30_000; // 30s pro Step
+
+async function withTimeout(promise, ms, label) {
+  const timeout = new Promise((_, rej) =>
+    setTimeout(() => rej(new Error(`Timeout nach ${ms / 1000}s: ${label}`)), ms)
+  );
+  return Promise.race([promise, timeout]);
+}
+
+async function runBotDonation(streamer, amount, message, groupName, donationUrl, onLog = async () => {}) {
   console.log(`[BOT] @${streamer} | €${amount} | TEST_MODE=${TEST_MODE} | ${donationUrl}`);
+  await onLog('start', `Bot gestartet für @${streamer} €${amount}`);
 
   const platform =
     donationUrl.includes('streamlabs.com')     ? 'streamlabs'     :
@@ -315,26 +325,28 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl)
   const page    = await context.newPage();
 
   try {
-    await page.goto(donationUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+    await withTimeout(
+      page.goto(donationUrl, { waitUntil: 'networkidle', timeout: STEP_TIMEOUT }),
+      STEP_TIMEOUT, 'goto'
+    );
 
     const opts = { amount, message, groupName };
-    if      (platform === 'streamlabs')     await flowStreamlabs(page, context, opts);
-    else if (platform === 'streamelements') await flowStreamElements(page, context, opts);
-    else                                    await flowTipeeeStream(page, context, opts);
+    if      (platform === 'streamlabs')     await withTimeout(flowStreamlabs(page, context, opts),     STEP_TIMEOUT * 4, 'flowStreamlabs');
+    else if (platform === 'streamelements') await withTimeout(flowStreamElements(page, context, opts),  STEP_TIMEOUT * 3, 'flowStreamElements');
+    else                                    await withTimeout(flowTipeeeStream(page, context, opts),    STEP_TIMEOUT * 4, 'flowTipeeeStream');
 
     const shot = `/tmp/grouppool_${platform}_${Date.now()}.png`;
-    await page.screenshot({ path: shot, fullPage: true });
+    await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
     console.log(`[BOT] Screenshot: ${shot}`);
+    await onLog('success', `Abgeschlossen auf ${platform}`);
 
-    if (TEST_MODE) {
-      console.log('[BOT] TEST_MODE=true – kein Submit, warte 5s.');
-      await page.waitForTimeout(5_000);
-    }
+    if (TEST_MODE) await page.waitForTimeout(3_000);
 
   } catch (err) {
     if (err.message === 'CAPTCHA_REQUIRED') throw err;
     console.error('[BOT] Fehler:', err.message);
     await page.screenshot({ path: `/tmp/grouppool_error_${Date.now()}.png`, fullPage: true }).catch(() => {});
+    await onLog('error', err.message.slice(0, 500));
   } finally {
     await browser.close();
     console.log('[BOT] Browser geschlossen.');

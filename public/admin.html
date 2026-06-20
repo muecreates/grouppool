@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GroupPool Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0e0e10; --surface: #18181b; --card: #1f1f23; --border: #2c2c35; --purple: #9146ff; --green: #00c853; --red: #eb0400; --yellow: #ffb800; --text: #efeff1; --muted: #adadb8; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; background: var(--bg); color: var(--text); }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 18px; font-weight: 800; color: var(--purple); }
+    .main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+    h2 { font-size: 16px; font-weight: 700; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .section { margin-bottom: 36px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 28px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+    .stat-val { font-size: 28px; font-weight: 800; }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border: none; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; }
+    .badge.open { background: rgba(0,200,83,.15); color: var(--green); }
+    .badge.triggered { background: rgba(145,70,255,.15); color: var(--purple); }
+    .badge.captcha_required { background: rgba(235,4,0,.15); color: var(--red); }
+    .badge.closed, .badge.error { background: rgba(173,173,184,.15); color: var(--muted); }
+    .badge.success { background: rgba(0,200,83,.15); color: var(--green); }
+    .badge.captcha { background: rgba(235,4,0,.15); color: var(--red); }
+    .badge.start { background: rgba(255,184,0,.15); color: var(--yellow); }
+    .healthy { color: var(--green); font-weight: 700; }
+    .degraded { color: var(--red); font-weight: 700; }
+    .btn { background: var(--purple); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .btn:hover { opacity: .85; }
+    .btn.red { background: var(--red); }
+    input[type="password"] { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 14px; width: 100%; max-width: 340px; }
+    .login-wrap { max-width: 360px; margin: 80px auto; text-align: center; }
+    .login-wrap h1 { font-size: 22px; margin-bottom: 20px; }
+    code { font-family: monospace; background: var(--border); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="loginView" class="login-wrap">
+  <h1>🔐 Admin Login</h1>
+  <input id="secretInput" type="password" placeholder="ADMIN_SECRET" onkeydown="if(event.key==='Enter')login()">
+  <br><br>
+  <button class="btn" onclick="login()">Einloggen</button>
+  <p id="loginError" style="color:var(--red);margin-top:12px;font-size:13px"></p>
+</div>
+
+<div id="adminView" style="display:none">
+  <header>
+    <div class="logo">🎯 GroupPool Admin</div>
+    <button class="btn" onclick="refresh()">↻ Aktualisieren</button>
+  </header>
+  <div class="main">
+    <div id="statsRow" class="grid"></div>
+    <div class="section">
+      <h2>🖥 Plattform-Status</h2>
+      <table id="platformTable"><tr><td><div class="spinner"></div></td></tr></table>
+    </div>
+    <div class="section">
+      <h2>💰 Pools (alle)</h2>
+      <table id="poolsTable"><tr><td><div class="spinner"></div></td></tr></table>
+    </div>
+    <div class="section">
+      <h2>🤖 Bot-Logs (letzte 24h)</h2>
+      <table id="logsTable"><tr><td><div class="spinner"></div></td></tr></table>
+    </div>
+  </div>
+</div>
+
+<script>
+let SECRET = '';
+
+function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(s) { return s ? new Date(s).toLocaleString('de-DE') : '—'; }
+function timeAgo(s) {
+  if (!s) return '—';
+  const diff = Date.now() - new Date(s).getTime();
+  const m = Math.floor(diff / 60_000), h = Math.floor(m / 60);
+  return h > 0 ? `vor ${h}h` : m > 0 ? `vor ${m}m` : 'gerade';
+}
+
+async function login() {
+  SECRET = document.getElementById('secretInput').value.trim();
+  const res = await fetch('/api/admin/stats', { headers: { 'x-admin-secret': SECRET } });
+  if (!res.ok) { document.getElementById('loginError').textContent = 'Falsches Passwort.'; return; }
+  document.getElementById('loginView').style.display = 'none';
+  document.getElementById('adminView').style.display = 'block';
+  renderStats(await res.json());
+}
+
+async function refresh() {
+  const res = await fetch('/api/admin/stats', { headers: { 'x-admin-secret': SECRET } });
+  if (res.ok) renderStats(await res.json());
+}
+
+async function triggerPool(id) {
+  if (!confirm(`Pool ${id} manuell triggern?`)) return;
+  const res = await fetch(`/admin/pool/${id}/manual-trigger`, { method: 'POST', headers: { 'x-admin-secret': SECRET } });
+  const d = await res.json();
+  alert(d.success ? 'Trigger gesendet!' : 'Fehler: ' + JSON.stringify(d));
+  refresh();
+}
+
+function renderStats({ pools, logs, platforms }) {
+  const open     = pools.filter(p => p.status === 'open').length;
+  const triggered = pools.filter(p => p.status === 'triggered').length;
+  const captcha  = pools.filter(p => p.status === 'captcha_required').length;
+  const errors   = logs.filter(l => l.status === 'error' || l.status === 'captcha').length;
+
+  document.getElementById('statsRow').innerHTML = [
+    { val: pools.length,  label: 'Pools gesamt' },
+    { val: open,          label: 'Offen' },
+    { val: triggered,     label: 'Ausgelöst' },
+    { val: captcha,       label: '⚠ CAPTCHA', red: captcha > 0 },
+    { val: errors,        label: 'Fehler (24h)', red: errors > 0 },
+    { val: platforms.filter(p => !p.healthy).length, label: 'Degraded', red: true },
+  ].map(s => `<div class="stat-card"><div class="stat-val" style="${s.red && s.val > 0 ? 'color:var(--red)' : ''}">${s.val}</div><div class="stat-label">${s.label}</div></div>`).join('');
+
+  document.getElementById('platformTable').innerHTML = `
+    <tr><th>Plattform</th><th>Status</th><th>Letzter Check</th><th>Fehler</th></tr>
+    ${platforms.map(p => `<tr>
+      <td><strong>${esc(p.platform)}</strong></td>
+      <td class="${p.healthy ? 'healthy' : 'degraded'}">${p.healthy ? '✓ Gesund' : '✗ Degraded'}</td>
+      <td>${timeAgo(p.last_check)}</td>
+      <td style="color:var(--red);font-size:12px">${esc(p.last_error || '—')}</td>
+    </tr>`).join('')}`;
+
+  const statusLabel = { open: 'Offen', triggered: 'Ausgelöst', captcha_required: '⚠ CAPTCHA', closed: 'Geschlossen' };
+  document.getElementById('poolsTable').innerHTML = `
+    <tr><th>Streamer</th><th>Gruppe</th><th>Betrag</th><th>Status</th><th>Erstellt</th><th>Aktion</th></tr>
+    ${pools.map(p => `<tr>
+      <td>@${esc(p.streamer)}</td>
+      <td>${esc(p.gruppe_name)}<br><code>${esc(p.id)}</code></td>
+      <td>${p.ist_betrag.toFixed(2)} / ${p.ziel_betrag.toFixed(2)} €</td>
+      <td><span class="badge ${p.status}">${statusLabel[p.status] || p.status}</span></td>
+      <td>${timeAgo(p.created_at)}</td>
+      <td>
+        <button class="btn" onclick="triggerPool('${esc(p.id)}')">▶ Trigger</button>
+        <a href="/pool.html?id=${esc(p.id)}" target="_blank" style="margin-left:6px;font-size:12px;color:var(--purple)">Detail →</a>
+      </td>
+    </tr>`).join('')}`;
+
+  document.getElementById('logsTable').innerHTML = logs.length
+    ? `<tr><th>Pool</th><th>Plattform</th><th>Status</th><th>Nachricht</th><th>Zeit</th></tr>
+       ${logs.map(l => `<tr>
+         <td><code>${esc(l.pool_id||'—')}</code></td>
+         <td>${esc(l.platform||'—')}</td>
+         <td><span class="badge ${l.status}">${esc(l.status)}</span></td>
+         <td style="font-size:12px;color:var(--muted);max-width:300px">${esc(l.message||'—')}</td>
+         <td style="white-space:nowrap">${timeAgo(l.timestamp)}</td>
+       </tr>`).join('')}`
+    : '<tr><td colspan="5" style="color:var(--muted);padding:20px">Keine Logs.</td></tr>';
+}
+</script>
+</body>
+</html>
