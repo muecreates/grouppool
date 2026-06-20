@@ -48,6 +48,7 @@
     .field input:focus { border-color: var(--purple); }
     .fee-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .fee-note strong { color: var(--text); }
+    .helper-text { font-size: 12px; color: var(--muted); font-style: italic; margin: 2px 0; }
   </style>
 </head>
 <body>
@@ -105,6 +106,8 @@ function render(pool, contribs) {
         </li>`).join('')}</ul>`
     : `<p style="color:var(--muted);font-size:13px">Noch keine Teilnehmer. Sei der Erste!</p>`;
 
+  const remaining = Math.max(0, pool.ziel_betrag - pool.ist_betrag);
+  window.__remaining = remaining;
   const joinSection = isOpen ? `
     <div class="card">
       <h2>💸 Mitmachen</h2>
@@ -112,9 +115,14 @@ function render(pool, contribs) {
         <div class="field"><label>Dein Name</label><input id="j-name" placeholder="Dein Twitch-Name"></div>
         <div class="field">
           <label>Betrag (€)</label>
-          <input id="j-betrag" type="number" min="1" step="1" placeholder="10" oninput="updateFee()">
-          <div class="fee-note" id="fee-note">Mindestbetrag: 1 €</div>
+          <input id="j-betrag" type="number" min="1" max="${remaining}" step="1" placeholder="10" oninput="updateFee()">
+          <div class="fee-note" id="fee-note">Mindestbetrag: 1 € · Noch ${remaining.toFixed(2)} € bis zum Ziel</div>
         </div>
+        <div class="field">
+          <label>E-Mail (optional)</label>
+          <input id="j-email" type="email" placeholder="E-Mail (optional) — für Benachrichtigung bei Auszahlung">
+        </div>
+        <p class="helper-text">Dein Beitrag zählt — je mehr mitmachen, desto größer die gemeinsame Donation!</p>
         <button class="btn green" id="joinBtn" onclick="joinPool()">Zur Kasse →</button>
       </div>
     </div>` : '';
@@ -159,20 +167,26 @@ function render(pool, contribs) {
 function updateFee() {
   const betrag = parseFloat(document.getElementById('j-betrag')?.value || 0);
   const note   = document.getElementById('fee-note');
+  const rem    = window.__remaining ?? Infinity;
   if (!note) return;
-  if (betrag >= 1) {
+  if (betrag > rem) {
+    note.innerHTML = `Beitrag überschreitet den verbleibenden Betrag (max. ${rem.toFixed(2)} €)`;
+  } else if (betrag >= 1) {
     const total = (betrag * 1.05).toFixed(2);
     note.innerHTML = `Du zahlst <strong>${total} €</strong> inkl. 5% Servicegebühr`;
   } else {
-    note.innerHTML = 'Mindestbetrag: 1 €';
+    note.innerHTML = `Mindestbetrag: 1 € · Noch ${rem.toFixed(2)} € bis zum Ziel`;
   }
 }
 
 async function joinPool() {
   const name   = document.getElementById('j-name')?.value.trim();
   const betrag = parseFloat(document.getElementById('j-betrag')?.value);
+  const email  = document.getElementById('j-email')?.value.trim() || '';
+  const rem    = window.__remaining ?? Infinity;
   if (!name) { alert('Bitte Namen eingeben.'); return; }
   if (!betrag || betrag < 1) { alert('Mindestbetrag: 1 €'); return; }
+  if (betrag > rem) { alert('Beitrag überschreitet den verbleibenden Betrag (max. ' + rem.toFixed(2) + ' €)'); return; }
 
   const btn = document.getElementById('joinBtn');
   btn.disabled = true;
@@ -182,7 +196,7 @@ async function joinPool() {
     const res  = await fetch(`/pool/${poolId}/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teilnehmer_name: name, betrag }),
+      body: JSON.stringify({ teilnehmer_name: name, betrag, email }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Fehler');

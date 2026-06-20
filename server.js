@@ -310,10 +310,10 @@ app.post('/pool/create', async (req, res) => {
   const { streamer, ziel_betrag, message, gruppe_name, ersteller_name, ersteller_beitrag } = req.body;
   if (!streamer || !ziel_betrag || !message || !gruppe_name)
     return res.status(400).json({ error: 'Fehlende Felder' });
-  if (Number(ziel_betrag) < 1)
-    return res.status(400).json({ error: 'Mindest-Zielbetrag: 1 €' });
-  if (Number(ziel_betrag) > 10)
-    return res.status(400).json({ error: 'Maximaler Zielbetrag für Tests: 10 €' });
+  if (Number(ziel_betrag) < 5)
+    return res.status(400).json({ error: 'Mindest-Zielbetrag: 5 €' });
+  if (Number(ziel_betrag) > 500)
+    return res.status(400).json({ error: 'Maximaler Zielbetrag: 500 €' });
 
   const beitrag = Number(ersteller_beitrag) || 0;
   const base    = process.env.BASE_URL || 'http://localhost:3001';
@@ -374,6 +374,8 @@ app.post('/pool/:id/join', async (req, res) => {
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
   if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
   if (Number(betrag) < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  if (Number(betrag) > (pool.ziel_betrag - pool.ist_betrag))
+    return res.status(400).json({ error: 'Beitrag überschreitet den verbleibenden Betrag' });
   const cid = uid();
   await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'paid')",
     [cid, pool.id, teilnehmer_name, Number(betrag)]);
@@ -394,6 +396,9 @@ app.post('/pool/:id/checkout', async (req, res) => {
   if (!teilnehmer_name) return res.status(400).json({ error: 'Name erforderlich' });
   const amount = Number(betrag);
   if (!amount || amount < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  const remaining = pool.ziel_betrag - pool.ist_betrag;
+  if (amount > remaining)
+    return res.status(400).json({ error: 'Beitrag überschreitet den verbleibenden Betrag' });
 
   const amountWithFee = Math.round(amount * (1 + FEE_RATE) * 100); // Cents inkl. 5% Fee
   const cid  = uid();

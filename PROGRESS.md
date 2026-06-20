@@ -1,3 +1,31 @@
+# GroupPool – Session 6 (Major Update)
+
+## Session 6 Tracking
+
+### Section 1 — Bug Fixes ✅
+- [x] Task 1: Contribution cap = remaining amount (frontend max + server-side)
+- [x] Task 2: Pool goal min 5€ / max 500€
+
+### Section 2 — New Features
+- [ ] Task 3: Email field + nodemailer payout notification
+- [ ] Task 4/5: names_visible toggle (DB, API, create modal, badge)
+- [ ] Task 6: Donation message format (named vs anonymous)
+- [ ] Task 7: Payout history (bot_logs endpoint + UI)
+- [ ] Task 8: Verify language filter
+
+### Section 3 — UI/UX
+- [ ] Task 9: Info icon tooltips
+- [ ] Task 10: Helper text in Mitmachen
+- [ ] Task 11/12: Inline pools + progress bars + streamer pool badge
+
+### Section 4 — Performance
+- [ ] Task 13-16: Cache headers, lazy images, CSS cleanup
+
+### Section 5 — Streamer Discovery
+- [ ] Task 17-19: game/lang/sort filters
+
+---
+
 # GroupPool – Session 5 ✅
 
 | # | Aufgabe | Status | Ergebnis |

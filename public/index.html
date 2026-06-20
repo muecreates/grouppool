@@ -196,7 +196,8 @@
     </div>
     <div class="field">
       <label>Zielbetrag (€)</label>
-      <input id="c-ziel" type="number" min="1" step="1" placeholder="50">
+      <input id="c-ziel" type="number" min="5" max="500" step="1" placeholder="50">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Min. 5 € · Max. 500 €</div>
     </div>
     <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
       <div class="field">
@@ -412,6 +413,8 @@
     if (!streamer || !gruppe_name || !message || !ziel_betrag || ziel_betrag <= 0) {
       toast('Bitte alle Felder ausfüllen.', 'error'); return;
     }
+    if (ziel_betrag < 5)   { toast('Mindest-Zielbetrag: 5 €', 'error'); return; }
+    if (ziel_betrag > 500) { toast('Maximaler Zielbetrag: 500 €', 'error'); return; }
     if (!ersteller_name || ersteller_beitrag < 1) {
       toast('Bitte deinen Namen und Starter-Beitrag (mind. 1 €) eingeben.', 'error'); return;
     }
