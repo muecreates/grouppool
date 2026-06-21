@@ -296,10 +296,10 @@ async function _runTrigger(poolId) {
   // Task 6: donation message format depends on names_visible
   let donationMessage;
   if (pool.names_visible) {
-    const parts = contributors.map(c => `${c.teilnehmer_name} (+${Math.round(c.betrag)}€)`).join(', ');
+    const parts = contributors.map(c => `${c.teilnehmer_name} (+€${c.betrag.toFixed(2)})`).join(', ');
     donationMessage = `${pool.message} — von: ${parts}`;
   } else {
-    donationMessage = `${pool.message} — von: ${pool.gruppe_name} (anonym, ${contributors.length} Teilnehmer)`;
+    donationMessage = `${pool.message} — von: GroupPool Community`;
   }
   // Task 3: collect emails for payout notification
   const notifyEmails = [...new Set(contributors.map(c => c.email).filter(e => e && e.includes('@')))];
