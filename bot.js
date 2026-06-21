@@ -1,6 +1,19 @@
 require('dotenv').config();
-const { chromium } = require('playwright');
 const fs = require('fs');
+
+// Use playwright-extra with stealth to bypass PayPal/bot-detection fingerprinting.
+// Falls back to plain playwright if playwright-extra is unavailable.
+let chromium;
+try {
+  const { chromium: chromiumExtra } = require('playwright-extra');
+  const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+  chromiumExtra.use(StealthPlugin());
+  chromium = chromiumExtra;
+  console.log('[BOT] Stealth-Modus aktiv (playwright-extra)');
+} catch {
+  ({ chromium } = require('playwright'));
+  console.log('[BOT] Stealth nicht verfügbar — Standard-Playwright');
+}
 
 // Screenshots go to /data/screenshots/ (Railway volume) so they survive deploys
 // and are downloadable via `railway volume files download`.
