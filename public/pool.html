@@ -48,7 +48,7 @@
     .field input:focus { border-color: var(--purple); }
     .fee-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .fee-note strong { color: var(--text); }
-    .helper-text { font-size: 12px; color: var(--muted); font-style: italic; margin: 2px 0; }
+    .helper-text { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
     .log-list { list-style: none; }
     .log-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
     .log-item:last-child { border: none; }
@@ -141,7 +141,7 @@ function render(pool, contribs) {
           <label>E-Mail (optional)</label>
           <input id="j-email" type="email" placeholder="E-Mail (optional) — für Benachrichtigung bei Auszahlung">
         </div>
-        <p class="helper-text">Dein Beitrag zählt — je mehr mitmachen, desto größer die gemeinsame Donation!</p>
+        <p class="helper-text">Dein Beitrag zählt — sobald das Ziel erreicht ist, geht eine gemeinsame Donation live auf Stream!</p>
         <button class="btn green" id="joinBtn" onclick="joinPool()">Zur Kasse →</button>
       </div>
     </div>` : '';
