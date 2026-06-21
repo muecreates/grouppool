@@ -3,7 +3,7 @@
 ## Session 7 Tracking (started 2026-06-21)
 
 - [x] Section 1 — Limits & validation (goal 1–15€, contrib min 0.50€, cap at remaining)
-- [ ] Section 2 — Residential proxy (PROXY_URL env var, bot only)
+- [x] Section 2 — Residential proxy (PROXY_URL env var, bot only) — SET PROXY_URL in Railway
 - [x] Section 3 — Payout history (VERIFIED: GET /api/pool/:id/logs exists; pool.html renders
       log list with German datetime, status colors (success=green/error=red/captcha=orange),
       message. bot.js writes start/success/error onLog entries; server _runTrigger writes
@@ -14,8 +14,11 @@
 - [x] Section 5 — Donation message format (names visible / anonymous → 'GroupPool Community')
 - [x] Section 6 — Info tooltips (existing pure-CSS tooltips, text updated to spec)
 - [x] Section 7 — Helper text (contribution form + goal input)
-- [ ] Section 8 — Streamer filters + top 8 category chips
-- [ ] Section 9 — Performance (lazy load, cache headers)
+- [x] Section 8 — Streamer filters + top 8 category chips (/api/top-categories, chip row)
+- [x] Section 9 — Performance (lazy load, cache headers) — verified, already present
+
+**ALL SECTIONS 1–9 COMPLETE (2026-06-21).**
+Deploy: `git push origin HEAD:main`. Railway action required: set `PROXY_URL` env var.
 
 ---
 
