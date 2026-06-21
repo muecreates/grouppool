@@ -120,9 +120,9 @@ async function solvePayPalSlider(ctx) {
     }).catch(() => null);
 
     // If DOM not accessible (cross-origin iframe), fall back to fixed coords.
-    // Derived from PayPal slider screenshot in 1280×900 viewport:
-    // button center ≈ (504, 288), track right edge ≈ (780, 288).
-    const geom = sliderGeom || { btnX: 504, btnY: 288, trackRight: 780 };
+    // Measured from PayPal slider screenshot in 1280×900 viewport:
+    // >> button center ≈ (530, 287), track right edge ≈ (782, 287).
+    const geom = sliderGeom || { btnX: 530, btnY: 287, trackRight: 782 };
     if (!sliderGeom) console.log('[CAPTCHA] Geometrie nicht gefunden — verwende Fallback-Koordinaten');
 
     const { btnX, btnY, trackRight } = geom;
