@@ -4,8 +4,13 @@
 
 - [x] Section 1 — Limits & validation (goal 1–15€, contrib min 0.50€, cap at remaining)
 - [ ] Section 2 — Residential proxy (PROXY_URL env var, bot only)
-- [ ] Section 3 — Payout history (verify + enhance)
-- [ ] Section 4 — Email notifications (verify)
+- [x] Section 3 — Payout history (VERIFIED: GET /api/pool/:id/logs exists; pool.html renders
+      log list with German datetime, status colors (success=green/error=red/captcha=orange),
+      message. bot.js writes start/success/error onLog entries; server _runTrigger writes
+      captcha + no-link error logs. Complete, no changes needed.)
+- [x] Section 4 — Email notifications (VERIFIED: db.js email column in SQLite + PG;
+      /pool/:id/checkout stores email; _runTrigger calls sendPayoutEmails after success;
+      pool.html has optional email input. Complete, no changes needed.)
 - [ ] Section 5 — Donation message format (names visible / anonymous)
 - [ ] Section 6 — Info tooltips
 - [ ] Section 7 — Helper text
