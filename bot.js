@@ -507,67 +507,18 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   console.log('[BOT] Suche PayPal-Button im rechten Panel...');
   await page.waitForTimeout(5000); // PayPal Smart Buttons brauchen Zeit zum Laden
 
-  // Scan the right panel for clickable elements (cursor:pointer) to find the
-  // PayPal button — it is NOT a <button> element in SE's React app.
-  const rightPanelClickables = await page.evaluate(() => {
-    const results = [];
-    for (const el of document.querySelectorAll('*')) {
-      const rect = el.getBoundingClientRect();
-      // Right panel: x>600, vertically in payment area
-      if (rect.x > 550 && rect.y > 100 && rect.y < 500 && rect.width > 30 && rect.height > 10) {
-        const style = window.getComputedStyle(el);
-        if (style.cursor === 'pointer') {
-          results.push({
-            tag: el.tagName, cls: el.className?.slice(0, 60),
-            text: el.innerText?.slice(0, 40).trim(),
-            x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2),
-            w: Math.round(rect.width), h: Math.round(rect.height),
-            attrs: Array.from(el.attributes).slice(0, 6).map(a => `${a.name}=${a.value?.slice(0, 25)}`).join(' '),
-          });
-        }
-      }
-    }
-    return results.slice(0, 15);
-  }).catch(() => []);
-  console.log('[BOT] Rechtes Panel klickbare Elemente:', JSON.stringify(rightPanelClickables));
-
-  // Find the PayPal button from clickable elements — it's likely a <div>/<a>/<img>
-  // positioned in the right panel where the PayPal logo is visible.
-  let paypalBtn = null;
-  let paypalCoords = null;
-
-  for (const el of rightPanelClickables) {
-    const isPayPal = (el.attrs + el.cls + el.text).toLowerCase().includes('paypal');
-    // PayPal button: large-ish element in right panel, or explicitly paypal-tagged
-    if (isPayPal || (el.w > 100 && el.h > 30 && el.tag !== 'BUTTON' && el.tag !== 'INPUT' && !el.text)) {
-      paypalCoords = { x: el.x, y: el.y };
-      console.log(`[BOT] SE PayPal-Kandidat: <${el.tag}> w=${el.w} h=${el.h} x=${el.x} y=${el.y} "${el.text}" [${el.attrs.slice(0, 60)}]`);
-      // Try as Playwright locator first
-      if (el.cls) {
-        const cls1 = el.cls.trim().split(/\s+/)[0];
-        const loc = page.locator(`.${CSS.escape(cls1)}`).first();
-        if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
-          paypalBtn = loc;
-          console.log(`[BOT] SE PayPal-Button via Klasse: .${cls1}`);
-          break;
-        }
-      }
-      break; // use coordinates below
-    }
-  }
-
-  if (!paypalBtn && !paypalCoords) {
+  // SE PayPal button has data-tipping-option-name="paypalV2" (confirmed from DOM scan)
+  const paypalBtn = page.locator('[data-tipping-option-name="paypalV2"]').first();
+  if (!await paypalBtn.isVisible({ timeout: 8_000 }).catch(() => false)) {
     await page.screenshot({ path: shot('se-no-paypal-btn.png'), fullPage: true }).catch(() => {});
-    throw new Error('StreamElements: PayPal-Button nicht gefunden — Screenshot: se-no-paypal-btn.png');
+    throw new Error('StreamElements: PayPal-Button [data-tipping-option-name="paypalV2"] nicht gefunden');
   }
+  console.log('[BOT] SE PayPal-Button gefunden: [data-tipping-option-name="paypalV2"]');
 
-  // PayPal öffnet meist als Popup
-  const clickAction = paypalBtn
-    ? paypalBtn.click()
-    : page.mouse.click(paypalCoords.x, paypalCoords.y);
+  // PayPal öffnet als Popup oder Inline-Modal
   const [popup] = await Promise.all([
     context.waitForEvent('page', { timeout: 12_000 }).catch(() => null),
-    clickAction,
+    paypalBtn.click(),
   ]);
 
   let ppCtx = page;
