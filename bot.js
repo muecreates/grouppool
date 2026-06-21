@@ -23,6 +23,10 @@ function shot(name) { return `${SHOT_DIR}/${name}`; }
 
 const BOT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
+// Optional residential proxy (e.g. IPRoyal). Format: http://user:pass@host:port
+// Playwright has built-in proxy support — no extra npm package needed.
+const PROXY_URL = process.env.PROXY_URL || null;
+
 // Kartendaten aus .env, Fallback auf Stripe-Testkarte
 const CARD = {
   number:    process.env.CARD_NUMBER    || '4242424242424242',
@@ -717,7 +721,12 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl,
                                                  'tipeeestream';
   console.log(`[BOT] Plattform: ${platform}`);
 
-  const browser = await chromium.launch({ headless: true });
+  const launchOpts = { headless: true };
+  if (PROXY_URL) {
+    launchOpts.proxy = { server: PROXY_URL };
+    console.log('[BOT] Proxy aktiv:', PROXY_URL.replace(/:([^:@]+)@/, ':***@'));
+  }
+  const browser = await chromium.launch(launchOpts);
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, userAgent: BOT_UA });
   const page    = await context.newPage();
 

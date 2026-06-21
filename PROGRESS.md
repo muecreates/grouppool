@@ -2,7 +2,7 @@
 
 ## Session 7 Tracking (started 2026-06-21)
 
-- [ ] Section 1 — Limits & validation (goal 1–15€, contrib min 0.50€, cap at remaining)
+- [x] Section 1 — Limits & validation (goal 1–15€, contrib min 0.50€, cap at remaining)
 - [ ] Section 2 — Residential proxy (PROXY_URL env var, bot only)
 - [ ] Section 3 — Payout history (verify + enhance)
 - [ ] Section 4 — Email notifications (verify)
