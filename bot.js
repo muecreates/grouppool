@@ -336,7 +336,7 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   await fillIfVisible(page, 'input[name="tip amount"]', amount.toString(), 'tip amount');
   await fillIfVisible(page, 'textarea[name="message"]', message,           'message');
 
-  await page.screenshot({ path: '${SHOT_DIR}/streamlabs-filled.png', fullPage: true });
+  await page.screenshot({ path: shot('streamlabs-filled.png'), fullPage: true });
 
   const donateBtn = page.locator('button:has-text("Donate"), button:has-text("Tip"), button.button--action').first();
   if (!await donateBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
@@ -354,9 +354,9 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
 
   await page.waitForTimeout(3000);
   await checkCaptcha(page);
-  await page.screenshot({ path: '${SHOT_DIR}/streamlabs-after-donate.png', fullPage: true });
+  await page.screenshot({ path: shot('streamlabs-after-donate.png'), fullPage: true });
 
-  // ── STEP 3: find "Debit or Credit Card" button in modal/popup/frames ─────
+  // ── STEP 3: hand off to shared PayPal card flow ──────────────────────────
   let ppCtx = page;
   if (popup) {
     await popup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
@@ -367,6 +367,14 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     console.log('[BOT] Kein Popup — suche PayPal-Modal auf Hauptseite...');
   }
 
+  await handlePayPalCardPayment(context, ppCtx, 'streamlabs');
+}
+
+// ── Shared: PayPal "Debit or Credit Card" flow ────────────────────────────────
+// Used by both Streamlabs and StreamElements after a PayPal button is clicked.
+// ppCtx: the Page/popup where PayPal rendered (main page or popup window).
+
+async function handlePayPalCardPayment(context, ppCtx, label) {
   const CARD_BTN_SEL = [
     'button:has-text("Debit or Credit Card")',
     'button:has-text("Debit or credit card")',
@@ -375,7 +383,6 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     '[data-funding-source="card"]',
   ].join(', ');
 
-  // PayPal buttons often live inside iframes — check page and all frames
   let cardBtn = null;
   for (const frame of [ppCtx, ...ppCtx.frames()]) {
     try {
@@ -389,11 +396,10 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
   }
 
   if (!cardBtn) {
-    await ppCtx.screenshot({ path: '${SHOT_DIR}/streamlabs-paypal-modal.png', fullPage: true });
-    throw new Error('PayPal "Debit or Credit Card" Button nicht gefunden (Screenshot: ${SHOT_DIR}/streamlabs-paypal-modal.png)');
+    await ppCtx.screenshot({ path: shot(`${label}-paypal-modal.png`), fullPage: true }).catch(() => {});
+    throw new Error(`${label}: PayPal "Debit or Credit Card" Button nicht gefunden`);
   }
 
-  // ── STEP 4: click card button, watch for popup OR inline iframe form ──────
   const [cardPopup] = await Promise.all([
     context.waitForEvent('page', { timeout: 10_000 }).catch(() => null),
     cardBtn.click(),
@@ -406,14 +412,12 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     await checkCaptcha(cardPopup);
     formCtx = cardPopup;
   } else {
-    // Card form typically expands inline inside a PayPal iframe on the same page.
-    // Give it time to render, then find which frame contains card_number.
     await ppCtx.waitForTimeout(4000);
     console.log('[BOT] Suche Karten-Formular in Frames...');
-    formCtx = ppCtx; // fallback
+    formCtx = ppCtx;
     for (const frame of [ppCtx, ...ppCtx.frames()]) {
       try {
-        const hasCard = await frame.locator('input[name="card_number"], input[id*="card"], input[placeholder*="ard"]').first()
+        const hasCard = await frame.locator('input[name="cardnumber"], input[name="card_number"], input[id*="card"]').first()
           .isVisible({ timeout: 3_000 }).catch(() => false);
         if (hasCard) {
           console.log('[BOT] Karten-Formular gefunden in Frame:', frame.url?.() ?? 'main');
@@ -424,41 +428,33 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
     }
   }
 
-  // ── STEP 5: fill card details + submit ───────────────────────────────────
-  console.log('\n[BOT] ── Kreditkartenformular (Streamlabs/PayPal) ──');
-  await ppCtx.screenshot({ path: '${SHOT_DIR}/streamlabs-card-form.png', fullPage: true });
+  console.log(`\n[BOT] ── Kreditkartenformular (${label}/PayPal) ──`);
+  await ppCtx.screenshot({ path: shot(`${label}-card-form.png`), fullPage: true }).catch(() => {});
 
   if (cardPopup) {
-    // Classic PayPal popup: full checkout page with named inputs
     await fillPayPalCardForm(formCtx);
   } else {
-    // Inline card-fields component: each field is a separate sub-iframe
     await fillPayPalCardFields(formCtx);
   }
 
-  await checkCaptcha(ppCtx); // checkCaptcha needs a Page, not a Frame
+  await checkCaptcha(ppCtx);
 
-  // Submit button may be in the card-fields frame or on the main Streamlabs page
   const SUBMIT_SEL = 'button:has-text("Pay Now"), button:has-text("Pay"), button:has-text("Confirm"), button:has-text("Agree and Continue"), button:has-text("Zustimmen und weiter"), button:has-text("Continue")';
   let submitted = await clickSubmit(formCtx, SUBMIT_SEL, 'PayPal Karten-Submit');
-  if (!submitted) {
-    submitted = await clickSubmit(ppCtx, SUBMIT_SEL, 'PayPal Karten-Submit (Hauptseite)');
-  }
+  if (!submitted) submitted = await clickSubmit(ppCtx, SUBMIT_SEL, 'PayPal Karten-Submit (Hauptseite)');
+  if (submitted) await capturePayPalResult(ppCtx, label);
+}
 
-  if (submitted) {
-    // ── STEP 6: wait 10s for PayPal response, capture result ─────────────
-    console.log('[BOT] Warte 10s auf PayPal-Antwort...');
-    await ppCtx.waitForTimeout(10_000);
-    const resultUrl = ppCtx.url();
-    console.log(`[BOT] Ergebnis-URL: ${resultUrl}`);
-    const resultShot = shot(`streamlabs-result-${Date.now()}.png`);
-    await ppCtx.screenshot({ path: resultShot, fullPage: true }).catch(() => {});
-    console.log(`[BOT] Ergebnis-Screenshot: ${resultShot}`);
-
-    // Log page title / any error text visible on screen
-    const resultText = await ppCtx.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => '');
-    console.log(`[BOT] Seiten-Inhalt: ${resultText.replace(/\n+/g, ' ').trim()}`);
-  }
+async function capturePayPalResult(ppCtx, label) {
+  console.log('[BOT] Warte 10s auf PayPal-Antwort...');
+  await ppCtx.waitForTimeout(10_000);
+  const resultUrl = ppCtx.url();
+  console.log(`[BOT] Ergebnis-URL: ${resultUrl}`);
+  const resultShot = shot(`${label}-result-${Date.now()}.png`);
+  await ppCtx.screenshot({ path: resultShot, fullPage: true }).catch(() => {});
+  console.log(`[BOT] Ergebnis-Screenshot: ${resultShot}`);
+  const resultText = await ppCtx.evaluate(() => document.body?.innerText?.slice(0, 500)).catch(() => '');
+  console.log(`[BOT] Seiten-Inhalt: ${resultText.replace(/\n+/g, ' ').trim()}`);
 }
 
 // ── StreamElements ────────────────────────────────────────────────────────────
@@ -474,20 +470,18 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   await page.waitForTimeout(800);
   console.log('[BOT] ESC gedrückt – Modal sollte geschlossen sein');
 
-  // Betrag: custom input oder nächste Preset-Radio wählen
+  // ── Betrag: custom input oder Preset-Radio ────────────────────────────────
   const amountInput = page.locator('input[name="amount"], input[type="number"]').first();
   if (await amountInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await amountInput.fill(amount.toString());
     console.log(`[BOT] amount → "${amount}" ✓`);
   } else {
-    // Preset-Radio: wähle "OTHER" oder letzten Radio für freie Eingabe
     const otherRadio = page.locator('label:has-text("OTHER"), label:has-text("Other")').first();
     if (await otherRadio.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await otherRadio.click();
       console.log('[BOT] "OTHER" Preset geklickt');
       await fillIfVisible(page, 'input[type="number"], input[name="amount"]', amount.toString(), 'custom amount');
     } else {
-      // Ersten verfügbaren Preset-Radio klicken
       const firstPreset = page.locator('input[name="preset"]').first();
       if (await firstPreset.isVisible({ timeout: 2_000 }).catch(() => false)) {
         await firstPreset.click();
@@ -496,30 +490,61 @@ async function flowStreamElements(page, context, { amount, message, groupName })
     }
   }
 
-  await fillIfVisible(page, 'textarea[name="message"]',    message,    'message');
-  await fillIfVisible(page, 'input[name="tipperUsername"]', groupName,  'tipperUsername');
+  await fillIfVisible(page, 'textarea[name="message"]',    message,   'message');
+  await fillIfVisible(page, 'input[name="tipperUsername"]', groupName, 'tipperUsername');
 
-  await page.screenshot({ path: '${SHOT_DIR}/se-payment.png', fullPage: true });
-  console.log('[BOT] Screenshot: ${SHOT_DIR}/se-payment.png');
+  await page.screenshot({ path: shot('se-filled.png'), fullPage: true });
 
-  // Submit (führt zu Login-Modal → dokumentiert)
-  const tipBtn = page.locator([
-    'button:has-text("Tip")', 'button:has-text("Send Tip")',
-    'button:has-text("Donate")', 'button[type="submit"]',
-  ].join(', ')).first();
-  if (await tipBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    const t = await tipBtn.innerText().catch(() => '?');
-    if (TEST_MODE) {
-      console.log(`[BOT] TEST_MODE=true – kein Klick auf "${t.trim()}"`);
-    } else {
-      await tipBtn.click();
-      await page.waitForTimeout(4000);
-      await checkCaptcha(page);
-      if (await page.locator('text="You must be logged-in", text="Connect with"').isVisible({ timeout: 2000 }).catch(() => false)) {
-        console.log('[BOT] StreamElements: Login erforderlich für Zahlung.');
-      }
-    }
+  if (TEST_MODE) {
+    console.log('[BOT] TEST_MODE=true – kein Payment-Klick');
+    await page.screenshot({ path: shot('se-payment.png'), fullPage: true });
+    console.log(`[BOT] Screenshot: ${shot('se-payment.png')}`);
+    return;
   }
+
+  // ── PayPal-Button im rechten Panel anklicken ──────────────────────────────
+  // SE zeigt den PayPal-Button direkt im rechten Panel (kein "Send Tip" nötig).
+  // "Send Tip" führt zu einem Login-Modal — stattdessen direkt PayPal klicken.
+  console.log('[BOT] Suche PayPal-Button im rechten Panel...');
+  await page.waitForTimeout(2000); // PayPal Smart Buttons brauchen Zeit zum Laden
+
+  let paypalBtn = null;
+  for (const frame of [page, ...page.frames()]) {
+    try {
+      const loc = frame.locator(
+        '[data-funding-source="paypal"], .paypal-button[data-funding-source="paypal"], button:has-text("PayPal")'
+      ).first();
+      if (await loc.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        paypalBtn = loc;
+        console.log('[BOT] SE PayPal-Button gefunden in Frame:', frame.url?.() ?? 'main');
+        break;
+      }
+    } catch {}
+  }
+
+  if (!paypalBtn) {
+    await page.screenshot({ path: shot('se-no-paypal-btn.png'), fullPage: true }).catch(() => {});
+    throw new Error('StreamElements: PayPal-Button nicht gefunden — Screenshot: se-no-paypal-btn.png');
+  }
+
+  // PayPal öffnet meist als Popup
+  const [popup] = await Promise.all([
+    context.waitForEvent('page', { timeout: 12_000 }).catch(() => null),
+    paypalBtn.click(),
+  ]);
+
+  let ppCtx = page;
+  if (popup) {
+    await popup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    console.log('[BOT] SE PayPal Popup geladen:', popup.url());
+    await checkCaptcha(popup);
+    ppCtx = popup;
+  } else {
+    await page.waitForTimeout(3000);
+    console.log('[BOT] Kein Popup — PayPal-Modal auf Hauptseite...');
+  }
+
+  await handlePayPalCardPayment(context, ppCtx, 'streamelements');
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -555,7 +580,7 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl,
 
     const opts = { amount, message, groupName };
     if      (platform === 'streamlabs')     await withTimeout(flowStreamlabs(page, context, opts),     STEP_TIMEOUT * 4, 'flowStreamlabs');
-    else if (platform === 'streamelements') await withTimeout(flowStreamElements(page, context, opts),  STEP_TIMEOUT * 3, 'flowStreamElements');
+    else if (platform === 'streamelements') await withTimeout(flowStreamElements(page, context, opts),  STEP_TIMEOUT * 5, 'flowStreamElements');
     else                                    await withTimeout(flowTipeeeStream(page, context, opts),    STEP_TIMEOUT * 4, 'flowTipeeeStream');
 
     const shotPath = shot(`grouppool_${platform}_${Date.now()}.png`);
