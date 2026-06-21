@@ -12,8 +12,8 @@
       /pool/:id/checkout stores email; _runTrigger calls sendPayoutEmails after success;
       pool.html has optional email input. Complete, no changes needed.)
 - [x] Section 5 — Donation message format (names visible / anonymous → 'GroupPool Community')
-- [ ] Section 6 — Info tooltips
-- [ ] Section 7 — Helper text
+- [x] Section 6 — Info tooltips (existing pure-CSS tooltips, text updated to spec)
+- [x] Section 7 — Helper text (contribution form + goal input)
 - [ ] Section 8 — Streamer filters + top 8 category chips
 - [ ] Section 9 — Performance (lazy load, cache headers)
 

@@ -58,6 +58,12 @@
     .filter-select { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 12px; font-size: 13px; font-family: inherit; cursor: pointer; outline: none; }
     .filter-select:focus { border-color: var(--purple); }
 
+    /* ── Category chips ── */
+    .chip-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .chip { background: var(--card); border: 1px solid var(--border); color: var(--muted); border-radius: 100px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s, border-color .15s; }
+    .chip:hover { color: var(--text); border-color: var(--purple); }
+    .chip.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+
     /* ── Stream grid ── */
     .stream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
     .stream-card { background: var(--card); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform .15s, box-shadow .15s; border: 1px solid var(--border); }
@@ -174,15 +180,10 @@
       <div class="section-title">Live auf Twitch <span id="streamCount" style="font-size:13px;color:var(--muted);font-weight:400"></span></div>
       <button class="btn btn-sm" onclick="showCreateModal()">+ Neuer Pool</button>
     </div>
+    <div id="categoryChips" class="chip-row">
+      <button class="chip active" data-game="">Alle</button>
+    </div>
     <div class="filter-bar">
-      <select id="filterGame" class="filter-select" onchange="loadStreams()">
-        <option value="">Alle Kategorien</option>
-        <option value="Just Chatting">Just Chatting</option>
-        <option value="Fortnite">Fortnite</option>
-        <option value="League of Legends">League of Legends</option>
-        <option value="Minecraft">Minecraft</option>
-        <option value="Valorant">Valorant</option>
-      </select>
       <select id="filterLang" class="filter-select" onchange="loadStreams()">
         <option value="">Alle Sprachen</option>
         <option value="en">EN</option>
@@ -306,6 +307,7 @@
   /* ─── State ─────────────────────────────────────────────────────────────── */
   let streams = [];
   let pools   = [];
+  let activeGame = '';
   let activeJoinPoolId = null;
   let countdown = 0;
   let countdownInterval = null;
@@ -328,10 +330,31 @@
     return res.json();
   }
 
+  /* ─── Category chips (top 8 Twitch games) ───────────────────────────────── */
+  async function loadCategoryChips() {
+    try {
+      const data = await apiFetch('/api/top-categories');
+      const cats = data.categories || [];
+      const row = document.getElementById('categoryChips');
+      if (!row) return;
+      const chips = [{ name: 'Alle', game: '' }, ...cats.map(c => ({ name: c.name, game: c.name }))];
+      row.innerHTML = chips.map(c =>
+        `<button class="chip${c.game === activeGame ? ' active' : ''}" data-game="${esc(c.game)}">${esc(c.name)}</button>`
+      ).join('');
+      row.querySelectorAll('.chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeGame = btn.dataset.game || '';
+          row.querySelectorAll('.chip').forEach(b => b.classList.toggle('active', b === btn));
+          loadStreams();
+        });
+      });
+    } catch (_) { /* keep "Alle" fallback chip */ }
+  }
+
   /* ─── Load streams ───────────────────────────────────────────────────────── */
   async function loadStreams() {
     try {
-      const game = document.getElementById('filterGame')?.value || '';
+      const game = activeGame;
       const lang = document.getElementById('filterLang')?.value || '';
       const sort = document.getElementById('filterSort')?.value || 'viewers';
       const qs = new URLSearchParams();
@@ -686,6 +709,7 @@
   }
 
   /* ─── Init ───────────────────────────────────────────────────────────────── */
+  loadCategoryChips();
   loadStreams();
   loadPools();
   resetCountdown();

@@ -355,7 +355,31 @@ async function _runTrigger(poolId) {
   ]);
 }
 
+// ── Top categories (Twitch top games, cached 1h) ──────────────────────────────
+
+let topCategoriesCache = { categories: [], expires: 0 };
+
+async function fetchTopCategories() {
+  if (topCategoriesCache.expires > Date.now() && topCategoriesCache.categories.length)
+    return topCategoriesCache.categories;
+  const token = await getTwitchToken();
+  if (!token) return topCategoriesCache.categories;
+  try {
+    const headers = { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
+    const r = await fetch('https://api.twitch.tv/helix/games/top?first=8', { headers });
+    const d = await r.json();
+    const categories = (d.data || []).map(g => ({ id: g.id, name: g.name }));
+    if (categories.length) topCategoriesCache = { categories, expires: Date.now() + 60 * 60_000 };
+    return categories;
+  } catch { return topCategoriesCache.categories; }
+}
+
 // ── Routes: Pools ─────────────────────────────────────────────────────────────
+
+app.get('/api/top-categories', async (req, res) => {
+  const categories = await fetchTopCategories();
+  res.json({ categories });
+});
 
 app.get('/api/live-streamers', async (req, res) => {
   let streamers = await fetchLiveStreamers();
