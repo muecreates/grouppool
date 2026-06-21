@@ -507,46 +507,33 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   console.log('[BOT] Suche PayPal-Button im rechten Panel...');
   await page.waitForTimeout(5000); // PayPal Smart Buttons brauchen Zeit zum Laden
 
-  // Diagnose: alle Buttons + iframes im DOM loggen
-  try {
-    const domInfo = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('button, [role="button"]'))
-        .map(e => ({
-          tag: e.tagName, text: e.innerText?.slice(0, 40).trim(),
-          aria: e.getAttribute('aria-label')?.slice(0, 40),
-          title: e.getAttribute('title')?.slice(0, 40),
-          dataFund: e.getAttribute('data-funding-source'),
-          cls: e.className?.slice(0, 50),
-        }));
-      const iframes = Array.from(document.querySelectorAll('iframe'))
-        .map(f => ({ src: f.src?.slice(0, 100), id: f.id, cls: f.className?.slice(0, 40) }));
-      return { btns, iframes };
-    });
-    console.log(`[BOT] DOM buttons (${domInfo.btns.length}): ${JSON.stringify(domInfo.btns)}`);
-    console.log(`[BOT] DOM iframes (${domInfo.iframes.length}): ${JSON.stringify(domInfo.iframes)}`);
-  } catch (e) { console.log('[BOT] DOM-Diagnose Fehler:', e.message); }
-
+  // PayPal button is rendered as a <button> with no text class — the PayPal
+  // logo is a CSS image inside it. Selector: the only <button> with no class
+  // in SE's React app. Also try clicking by PayPal image inside any element.
   let paypalBtn = null;
-  const PP_BTN_SELECTORS = [
-    '[data-funding-source="paypal"]',
-    'div[data-funding-source="paypal"]',
-    '[class*="paypal-button"]',
-    '[aria-label*="PayPal"]',
-    '[title*="PayPal"]',
-    'button:has-text("PayPal")',
-  ];
-  for (const frame of [page, ...page.frames()]) {
-    for (const sel of PP_BTN_SELECTORS) {
-      try {
-        const loc = frame.locator(sel).first();
-        if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
-          paypalBtn = loc;
-          console.log(`[BOT] SE PayPal-Button: "${sel}" in Frame ${frame.url?.().slice(0, 80) ?? 'main'}`);
-          break;
-        }
-      } catch {}
+
+  // 1. Button with no class (confirmed from DOM diagnostic: the PayPal button
+  //    has class="" while all other SE buttons have hashed se-ds-c-* classes)
+  const noClassBtn = page.locator('button').filter({ hasNot: page.locator('[class]') }).first();
+  if (await noClassBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    paypalBtn = noClassBtn;
+    console.log('[BOT] SE PayPal-Button: classless <button> gefunden');
+  }
+
+  // 2. Any element containing a PayPal img/svg (logo inside the button)
+  if (!paypalBtn) {
+    for (const sel of [
+      ':has(img[alt*="PayPal"]) button', ':has(img[src*="paypal"]) button',
+      'img[alt*="PayPal"]', '[data-funding-source="paypal"]',
+      '[aria-label*="PayPal"]', '[title*="PayPal"]',
+    ]) {
+      const loc = page.locator(sel).first();
+      if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
+        paypalBtn = loc;
+        console.log(`[BOT] SE PayPal-Button via "${sel}"`);
+        break;
+      }
     }
-    if (paypalBtn) break;
   }
 
   if (!paypalBtn) {
