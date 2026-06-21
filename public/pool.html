@@ -134,8 +134,8 @@ function render(pool, contribs) {
         <div class="field"><label>Dein Name</label><input id="j-name" placeholder="Dein Twitch-Name"></div>
         <div class="field">
           <label>Betrag (€) <span class="tooltip" data-tip="Die 5% Servicegebühr deckt Zahlungsabwicklung und Betrieb der Plattform.">ℹ️</span></label>
-          <input id="j-betrag" type="number" min="1" max="${remaining}" step="1" placeholder="10" oninput="updateFee()">
-          <div class="fee-note" id="fee-note">Mindestbetrag: 1 € · Noch ${remaining.toFixed(2)} € bis zum Ziel</div>
+          <input id="j-betrag" type="number" min="0.50" max="${remaining.toFixed(2)}" step="0.50" placeholder="2" oninput="updateFee()">
+          <div class="fee-note" id="fee-note">Mindestbeitrag: 0,50 € · Noch ${remaining.toFixed(2)} € bis zum Ziel</div>
         </div>
         <div class="field">
           <label>E-Mail (optional)</label>
@@ -231,11 +231,11 @@ function updateFee() {
   if (!note) return;
   if (betrag > rem) {
     note.innerHTML = `Beitrag überschreitet den verbleibenden Betrag (max. ${rem.toFixed(2)} €)`;
-  } else if (betrag >= 1) {
+  } else if (betrag >= 0.5) {
     const total = (betrag * 1.05).toFixed(2);
     note.innerHTML = `Du zahlst <strong>${total} €</strong> inkl. 5% Servicegebühr`;
   } else {
-    note.innerHTML = `Mindestbetrag: 1 € · Noch ${rem.toFixed(2)} € bis zum Ziel`;
+    note.innerHTML = `Mindestbeitrag: 0,50 € · Noch ${rem.toFixed(2)} € bis zum Ziel`;
   }
 }
 
@@ -245,7 +245,7 @@ async function joinPool() {
   const email  = document.getElementById('j-email')?.value.trim() || '';
   const rem    = window.__remaining ?? Infinity;
   if (!name) { alert('Bitte Namen eingeben.'); return; }
-  if (!betrag || betrag < 1) { alert('Mindestbetrag: 1 €'); return; }
+  if (!betrag || betrag < 0.5) { alert('Mindestbeitrag: 0,50 €'); return; }
   if (betrag > rem) { alert('Beitrag überschreitet den verbleibenden Betrag (max. ' + rem.toFixed(2) + ' €)'); return; }
 
   const btn = document.getElementById('joinBtn');

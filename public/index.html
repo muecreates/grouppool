@@ -138,6 +138,7 @@
       transition: opacity .15s; z-index: 1000;
     }
     .tooltip:hover::after { opacity: 1; }
+    .helper-text { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
 
     /* ── Contributions list ── */
     .contrib-list { font-size: 13px; color: var(--muted); margin-top: 8px; }
@@ -243,8 +244,9 @@
     </div>
     <div class="field">
       <label>Zielbetrag (€) <span class="tooltip" data-tip="Sobald das Ziel erreicht ist, wird automatisch eine Donation an den Streamer gesendet.">ℹ️</span></label>
-      <input id="c-ziel" type="number" min="5" max="500" step="1" placeholder="50">
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Min. 5 € · Max. 500 €</div>
+      <input id="c-ziel" type="number" min="1" max="15" step="1" placeholder="10">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Für Tests: 1–15 €</div>
+      <p class="helper-text">Empfehlung: 2–5 € für Tests</p>
     </div>
     <div class="field" style="margin-top:4px">
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;cursor:pointer">
@@ -259,8 +261,8 @@
         <input id="c-creator-name" type="text" placeholder="Dein Twitch-Name">
       </div>
       <div class="field">
-        <label>Dein Starter-Beitrag (min. 1 €)</label>
-        <input id="c-creator-beitrag" type="number" min="1" step="1" placeholder="5" oninput="updateCreatorFee()">
+        <label>Dein Starter-Beitrag (0 oder min. 0,50 €)</label>
+        <input id="c-creator-beitrag" type="number" min="0" step="0.50" placeholder="2" oninput="updateCreatorFee()">
         <div id="c-creator-fee-note" style="font-size:11px;color:var(--muted);margin-top:4px">Pool ist erst nach deiner Zahlung sichtbar.</div>
       </div>
     </div>
@@ -285,7 +287,8 @@
     </div>
     <div class="field">
       <label>Betrag (€) <span class="tooltip" data-tip="Die 5% Servicegebühr deckt Zahlungsabwicklung und Betrieb der Plattform.">ℹ️</span></label>
-      <input id="j-betrag" type="number" min="1" step="1" placeholder="10">
+      <input id="j-betrag" type="number" min="0.50" step="0.50" placeholder="2">
+      <div id="j-remaining-hint" style="font-size:11px;color:var(--muted);margin-top:4px;"></div>
     </div>
     <div id="joinContribs" style="margin-top:4px;margin-bottom:8px;"></div>
     <div id="feeNote" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>
@@ -495,8 +498,8 @@
     const b = parseFloat(document.getElementById('c-creator-beitrag')?.value || 0);
     const note = document.getElementById('c-creator-fee-note');
     if (!note) return;
-    if (b >= 1) note.innerHTML = `Du zahlst <strong>${(b * 1.05).toFixed(2)} €</strong> inkl. 5% Gebühr — Pool wird sofort nach Zahlung sichtbar.`;
-    else note.textContent = 'Pool ist erst nach deiner Zahlung sichtbar (mind. 1 €).';
+    if (b >= 0.5) note.innerHTML = `Du zahlst <strong>${(b * 1.05).toFixed(2)} €</strong> inkl. 5% Gebühr — Pool wird sofort nach Zahlung sichtbar.`;
+    else note.textContent = 'Pool ist erst nach deiner Zahlung sichtbar (Beitrag 0 oder mind. 0,50 €).';
   }
 
   async function submitCreate() {
@@ -511,10 +514,13 @@
     if (!streamer || !gruppe_name || !message || !ziel_betrag || ziel_betrag <= 0) {
       toast('Bitte alle Felder ausfüllen.', 'error'); return;
     }
-    if (ziel_betrag < 5)   { toast('Mindest-Zielbetrag: 5 €', 'error'); return; }
-    if (ziel_betrag > 500) { toast('Maximaler Zielbetrag: 500 €', 'error'); return; }
-    if (!ersteller_name || ersteller_beitrag < 1) {
-      toast('Bitte deinen Namen und Starter-Beitrag (mind. 1 €) eingeben.', 'error'); return;
+    if (ziel_betrag < 1)  { toast('Mindest-Zielbetrag: 1 €', 'error'); return; }
+    if (ziel_betrag > 15) { toast('Maximaler Zielbetrag: 15 €', 'error'); return; }
+    if (ersteller_beitrag > 0 && ersteller_beitrag < 0.5) {
+      toast('Mindestbeitrag: 0,50 € (oder 0 für keinen Beitrag).', 'error'); return;
+    }
+    if (ersteller_beitrag >= 0.5 && !ersteller_name) {
+      toast('Bitte deinen Namen für den Starter-Beitrag eingeben.', 'error'); return;
     }
 
     const btn = document.getElementById('createSubmitBtn');
@@ -560,6 +566,12 @@
     document.getElementById('feeNote').textContent = '';
     document.getElementById('joinSubmitBtn').disabled = false;
 
+    // Cap amount at remaining and show hint
+    const remaining = Math.max(0, pool.ziel_betrag - pool.ist_betrag);
+    const betragInput = document.getElementById('j-betrag');
+    betragInput.max = remaining.toFixed(2);
+    document.getElementById('j-remaining-hint').textContent = `Noch ${remaining.toFixed(2)} € bis zum Ziel · Mindestbeitrag 0,50 €`;
+
     // load contributions
     try {
       const data = await apiFetch(`/pool/${poolId}`);
@@ -581,7 +593,7 @@
   document.getElementById('j-betrag')?.addEventListener?.('input', function() {
     const b = parseFloat(this.value);
     const note = document.getElementById('feeNote');
-    if (b >= 1) note.textContent = `Du zahlst ${(b * 1.05).toFixed(2)} € inkl. 5% Servicegebühr`;
+    if (b >= 0.5) note.textContent = `Du zahlst ${(b * 1.05).toFixed(2)} € inkl. 5% Servicegebühr`;
     else note.textContent = '';
   });
 
@@ -589,8 +601,8 @@
     const teilnehmer_name = document.getElementById('j-name').value.trim();
     const betrag          = parseFloat(document.getElementById('j-betrag').value);
 
-    if (!teilnehmer_name || !betrag || betrag < 1) {
-      toast('Mindestbetrag: 1 € und Name erforderlich.', 'error'); return;
+    if (!teilnehmer_name || !betrag || betrag < 0.5) {
+      toast('Mindestbeitrag: 0,50 € und Name erforderlich.', 'error'); return;
     }
 
     const btn = document.getElementById('joinSubmitBtn');

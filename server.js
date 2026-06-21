@@ -428,10 +428,13 @@ app.post('/pool/create', async (req, res) => {
   const namesVisible = (names_visible === false || names_visible === 0 || names_visible === '0') ? 0 : 1;
   if (Number(ziel_betrag) < 1)
     return res.status(400).json({ error: 'Mindest-Zielbetrag: 1 €' });
-  if (Number(ziel_betrag) > 10)
-    return res.status(400).json({ error: 'Maximaler Zielbetrag für Tests: 10 €' });
+  if (Number(ziel_betrag) > 15)
+    return res.status(400).json({ error: 'Maximaler Zielbetrag für Tests: 15 €' });
 
   const beitrag = Number(ersteller_beitrag) || 0;
+  // Ersteller-Beitrag: 0 (kein Beitrag) oder ≥ 0,50 € erlaubt
+  if (beitrag > 0 && beitrag < 0.5)
+    return res.status(400).json({ error: 'Mindestbeitrag: 0,50 €' });
   const base    = process.env.BASE_URL || 'http://localhost:3001';
   const id      = uid();
 
@@ -441,8 +444,8 @@ app.post('/pool/create', async (req, res) => {
     [id, streamer, gruppe_name, message, Number(ziel_betrag), namesVisible]
   );
 
-  // Wenn Ersteller-Beitrag ≥ 1 €: Stripe Checkout
-  if (ersteller_name && beitrag >= 1) {
+  // Wenn Ersteller-Beitrag ≥ 0,50 €: Stripe Checkout
+  if (ersteller_name && beitrag >= 0.5) {
     const amountWithFee = Math.round(beitrag * (1 + FEE_RATE) * 100);
     const cid = uid();
     await dbRun("INSERT INTO contributions (id, pool_id, teilnehmer_name, betrag, status) VALUES (?, ?, ?, ?, 'pending')",
@@ -499,7 +502,7 @@ app.post('/pool/:id/join', async (req, res) => {
   const { teilnehmer_name, betrag } = req.body;
   const pool = await dbGet('SELECT * FROM pools WHERE id = ?', [req.params.id]);
   if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
-  if (Number(betrag) < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  if (Number(betrag) < 0.5) return res.status(400).json({ error: 'Mindestbeitrag: 0,50 €' });
   if (Number(betrag) > (pool.ziel_betrag - pool.ist_betrag))
     return res.status(400).json({ error: 'Beitrag überschreitet den verbleibenden Betrag' });
   const cid = uid();
@@ -521,7 +524,7 @@ app.post('/pool/:id/checkout', async (req, res) => {
   if (!pool) return res.status(404).json({ error: 'Pool nicht gefunden' });
   if (!teilnehmer_name) return res.status(400).json({ error: 'Name erforderlich' });
   const amount = Number(betrag);
-  if (!amount || amount < 1) return res.status(400).json({ error: 'Mindestbetrag: 1 €' });
+  if (!amount || amount < 0.5) return res.status(400).json({ error: 'Mindestbeitrag: 0,50 €' });
   const remaining = pool.ziel_betrag - pool.ist_betrag;
   if (amount > remaining)
     return res.status(400).json({ error: 'Beitrag überschreitet den verbleibenden Betrag' });
