@@ -92,29 +92,15 @@ async function solveCaptchaWith2captcha(page) {
 // Drags the >> button from left to right with a human-like curved path.
 // Returns true if the slider appears to be accepted, false after 3 failed attempts.
 
-async function solvePayPalSlider(page) {
+async function solvePayPalSlider(ctx) {
+  // ctx may be a Page or a Frame — mouse events always go to the root Page
+  const rootPage = ctx.page ? ctx.page() : ctx;
+
   for (let attempt = 1; attempt <= 3; attempt++) {
     console.log(`[CAPTCHA] Slider-Versuch ${attempt}/3`);
 
-    // Locate the slider button (the >> arrow) and the track it slides on
-    const sliderBtn = page.locator('button svg, button[class*="slider"], button[aria-label*="slider"], button').first();
-    const track = page.locator('div[class*="slider"], [role="slider"], input[type="range"]').first();
-
-    // Get bounding boxes
-    const btnBox = await sliderBtn.boundingBox().catch(() => null);
-    if (!btnBox) {
-      // Fallback: find by visual position — the >> button is a small blue square
-      const allBtns = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('button')).map(b => {
-          const r = b.getBoundingClientRect();
-          return { x: r.x, y: r.y, w: r.width, h: r.height, text: b.innerText?.trim() };
-        })
-      );
-      console.log(`[CAPTCHA] Buttons auf Seite: ${JSON.stringify(allBtns)}`);
-    }
-
-    // Try to get slider geometry from the page itself
-    const sliderGeom = await page.evaluate(() => {
+    // Try to get slider geometry from the context's DOM
+    const sliderGeom = await ctx.evaluate(() => {
       // Look for the slider track container
       const track = document.querySelector('[class*="track"], [class*="slider-track"], [role="slider"]')
         || document.querySelector('div > button'); // fallback
@@ -135,7 +121,7 @@ async function solvePayPalSlider(page) {
 
     if (!sliderGeom) {
       console.log(`[CAPTCHA] Slider-Geometrie nicht gefunden`);
-      await page.waitForTimeout(1000);
+      await rootPage.waitForTimeout(1000);
       continue;
     }
 
@@ -143,11 +129,11 @@ async function solvePayPalSlider(page) {
     const distance = trackRight - btnX;
     console.log(`[CAPTCHA] Slider: start=(${Math.round(btnX)},${Math.round(btnY)}) ziel=(${Math.round(trackRight)},${Math.round(btnY)}) distanz=${Math.round(distance)}px`);
 
-    // Move to slider button first
-    await page.mouse.move(btnX, btnY);
-    await page.waitForTimeout(80 + Math.random() * 120);
-    await page.mouse.down();
-    await page.waitForTimeout(60 + Math.random() * 80);
+    // Mouse events target the root Page (mouse is a top-level concept)
+    await rootPage.mouse.move(btnX, btnY);
+    await rootPage.waitForTimeout(80 + Math.random() * 120);
+    await rootPage.mouse.down();
+    await rootPage.waitForTimeout(60 + Math.random() * 80);
 
     // Drag with curved path: ease-in at start, max speed in middle, ease-out at end
     // Add small random vertical jitter to simulate human hand
@@ -165,19 +151,19 @@ async function solvePayPalSlider(page) {
       // Variable delay: faster in the middle, slower at edges
       const speedFactor = 0.3 + 0.7 * Math.sin(t * Math.PI); // 0.3..1.0
       const delay = (8 + Math.random() * 6) / speedFactor;
-      await page.mouse.move(x, y);
-      await page.waitForTimeout(delay);
+      await rootPage.mouse.move(x, y);
+      await rootPage.waitForTimeout(delay);
     }
 
     // Hold at end briefly like a human would
-    await page.waitForTimeout(80 + Math.random() * 120);
-    await page.mouse.up();
+    await rootPage.waitForTimeout(80 + Math.random() * 120);
+    await rootPage.mouse.up();
 
     // Wait for PayPal to validate (up to 4s)
-    await page.waitForTimeout(2000 + Math.random() * 2000);
+    await rootPage.waitForTimeout(2000 + Math.random() * 2000);
 
-    // Check if slider was accepted: look for the next step content (email input or card options)
-    const stillSlider = await page.locator('text="Confirm you\'re human", text="Move the slider"').first()
+    // Check if slider was accepted: look for the slider text in all frames
+    const stillSlider = await ctx.locator('text="Confirm you\'re human", text="Move the slider"').first()
       .isVisible({ timeout: 2_000 }).catch(() => false);
     if (!stillSlider) {
       console.log(`[CAPTCHA] Slider akzeptiert nach Versuch ${attempt} ✓`);
@@ -185,7 +171,7 @@ async function solvePayPalSlider(page) {
     }
 
     console.log(`[CAPTCHA] Slider nicht akzeptiert — warte vor nächstem Versuch...`);
-    await page.waitForTimeout(1500 + attempt * 500);
+    await rootPage.waitForTimeout(1500 + attempt * 500);
   }
 
   console.log('[CAPTCHA] Slider nach 3 Versuchen nicht gelöst — eskaliere');
@@ -201,12 +187,20 @@ async function checkCaptcha(page) {
   }
 
   // PayPal slider CAPTCHA: "Confirm you're human — Move the slider all the way to the right"
+  // May appear in a cross-origin PayPal iframe — check main page AND all frames.
   try {
-    const sliderVisible = await page.locator('text="Confirm you\'re human", text="Move the slider"').first()
-      .isVisible({ timeout: 1_000 }).catch(() => false);
-    if (sliderVisible) {
+    let sliderCtx = null;
+    const contexts = page.frames ? [page, ...page.frames()] : [page];
+    for (const ctx of contexts) {
+      try {
+        const visible = await ctx.locator('text="Confirm you\'re human", text="Move the slider"').first()
+          .isVisible({ timeout: 800 }).catch(() => false);
+        if (visible) { sliderCtx = ctx; break; }
+      } catch {}
+    }
+    if (sliderCtx) {
       console.log(`[CAPTCHA] PayPal Slider-CAPTCHA erkannt — versuche Drag-Lösung...`);
-      const solved = await solvePayPalSlider(page);
+      const solved = await solvePayPalSlider(sliderCtx);
       if (!solved) throw new Error('CAPTCHA_REQUIRED');
       console.log('[CAPTCHA] Slider gelöst ✓ — fahre fort');
     }
@@ -531,7 +525,20 @@ async function handlePayPalCardPayment(context, ppCtx, label) {
 
   if (!cardBtn) {
     await ppCtx.screenshot({ path: shot(`${label}-paypal-modal.png`), fullPage: true }).catch(() => {});
-    throw new Error(`${label}: PayPal "Debit or Credit Card" Button nicht gefunden`);
+    // If button missing, slider CAPTCHA may be blocking — try blind drag at typical position
+    console.log('[BOT] "Debit or Credit Card" nicht gefunden — versuche Blind-Slider-Drag...');
+    const blindSolved = await solvePayPalSlider(ppCtx);
+    if (blindSolved) {
+      // Re-check for card button after slider solved
+      await ppCtx.waitForTimeout(2000);
+      for (const frame of [ppCtx, ...ppCtx.frames()]) {
+        try {
+          const loc = frame.locator(CARD_BTN_SEL).first();
+          if (await loc.isVisible({ timeout: 3_000 }).catch(() => false)) { cardBtn = loc; break; }
+        } catch {}
+      }
+    }
+    if (!cardBtn) throw new Error(`${label}: PayPal "Debit or Credit Card" Button nicht gefunden`);
   }
 
   const [cardPopup] = await Promise.all([
