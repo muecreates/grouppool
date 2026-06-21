@@ -243,20 +243,24 @@ async function fillPayPalCardFields(cardFieldsFrame) {
   await typeIn('line1',                 CARD.address,                   'address');
   await typeIn('city',                  CARD.city,                      'city');
   await typeIn('postcode',              CARD.plz,                       'postcode');
+  // State/region — required by PayPal when country is US; use env var or skip for DE
+  const stateVal = process.env.CARD_STATE || '';
+  if (stateVal) await typeIn('state', stateVal, 'state');
   await typeIn('phone',                 phone,                          'phone');
   await typeIn('email',                 CARD.email,                     'email');
 
-  // Uncheck "ship to billing address" — click the label (it intercepts pointer events)
+  // Keep "Ship to billing address" CHECKED — unchecking it expands a separate
+  // shipping form with additional required fields that the bot doesn't fill.
   const shipBox = cardFieldsFrame.locator('input[name="shipToBillingAddress"]').first();
   if (await shipBox.isVisible({ timeout: 1_000 }).catch(() => false) &&
-      await shipBox.isChecked().catch(() => false)) {
+      !await shipBox.isChecked().catch(() => true)) {
     const shipLabel = cardFieldsFrame.locator('label:has(input[name="shipToBillingAddress"]), label[for="shipToBillingAddress"]').first();
     if (await shipLabel.isVisible({ timeout: 1_000 }).catch(() => false)) {
       await shipLabel.click();
     } else {
       await shipBox.evaluate(el => el.click());
     }
-    console.log('[BOT] shipToBillingAddress deaktiviert ✓');
+    console.log('[BOT] shipToBillingAddress aktiviert ✓');
   }
 }
 
