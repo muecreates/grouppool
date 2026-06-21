@@ -504,6 +504,11 @@ async function flowStreamlabs(page, context, { amount, message, groupName }) {
 // ppCtx: the Page/popup where PayPal rendered (main page or popup window).
 
 async function handlePayPalCardPayment(context, ppCtx, label) {
+  // PayPal may show a slider CAPTCHA immediately after the modal opens.
+  // Check and attempt to solve before looking for payment options.
+  await ppCtx.waitForTimeout(2000);
+  await checkCaptcha(ppCtx);
+
   const CARD_BTN_SEL = [
     'button:has-text("Debit or Credit Card")',
     'button:has-text("Debit or credit card")',
@@ -672,13 +677,15 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   if (popup) {
     await popup.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
     console.log('[BOT] SE PayPal Popup geladen:', popup.url());
-    await checkCaptcha(popup);
     ppCtx = popup;
   } else {
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(4000);
     console.log('[BOT] Kein Popup — PayPal-Modal auf Hauptseite...');
   }
 
+  // checkCaptcha is also called inside handlePayPalCardPayment, but check here
+  // too so slider detection happens in the right context immediately.
+  await checkCaptcha(ppCtx);
   await handlePayPalCardPayment(context, ppCtx, 'streamelements');
 }
 
