@@ -83,6 +83,16 @@ async function checkCaptcha(page) {
     throw new Error('CAPTCHA_REQUIRED');
   }
 
+  // PayPal slider CAPTCHA: "Confirm you're human — Move the slider all the way to the right"
+  try {
+    const sliderVisible = await page.locator('text="Confirm you\'re human", text="Move the slider"').first()
+      .isVisible({ timeout: 1_000 }).catch(() => false);
+    if (sliderVisible) {
+      console.log(`[CAPTCHA] PayPal Slider-CAPTCHA erkannt auf ${url}`);
+      throw new Error('CAPTCHA_REQUIRED');
+    }
+  } catch (e) { if (e.message === 'CAPTCHA_REQUIRED') throw e; }
+
   for (const frame of page.frames()) {
     const fu = frame.url();
     if (fu.includes('recaptcha/api2/anchor') || fu.includes('recaptcha/enterprise/anchor')) {
