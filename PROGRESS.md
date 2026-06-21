@@ -11,7 +11,7 @@
 - [x] Section 4 — Email notifications (VERIFIED: db.js email column in SQLite + PG;
       /pool/:id/checkout stores email; _runTrigger calls sendPayoutEmails after success;
       pool.html has optional email input. Complete, no changes needed.)
-- [ ] Section 5 — Donation message format (names visible / anonymous)
+- [x] Section 5 — Donation message format (names visible / anonymous → 'GroupPool Community')
 - [ ] Section 6 — Info tooltips
 - [ ] Section 7 — Helper text
 - [ ] Section 8 — Streamer filters + top 8 category chips

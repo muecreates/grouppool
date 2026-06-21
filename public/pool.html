@@ -133,7 +133,7 @@ function render(pool, contribs) {
       <div class="join-form">
         <div class="field"><label>Dein Name</label><input id="j-name" placeholder="Dein Twitch-Name"></div>
         <div class="field">
-          <label>Betrag (€) <span class="tooltip" data-tip="Die 5% Servicegebühr deckt Zahlungsabwicklung und Betrieb der Plattform.">ℹ️</span></label>
+          <label>Betrag (€) <span class="tooltip" data-tip="5% Servicegebühr deckt Zahlungsabwicklung und Plattformbetrieb. Der Betrag, den der Streamer erhält, steht in der Gebühren-Notiz unten.">ℹ️</span></label>
           <input id="j-betrag" type="number" min="0.50" max="${remaining.toFixed(2)}" step="0.50" placeholder="2" oninput="updateFee()">
           <div class="fee-note" id="fee-note">Mindestbeitrag: 0,50 € · Noch ${remaining.toFixed(2)} € bis zum Ziel</div>
         </div>

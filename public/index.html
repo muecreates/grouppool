@@ -155,7 +155,7 @@
 <body>
 
 <header>
-  <div class="logo">🎯 Group<span>Pool</span> <span class="tooltip" data-tip="Ein Pool sammelt Beiträge mehrerer Teilnehmer für eine gemeinsame Donation an einen Streamer." style="font-size:14px">ℹ️</span></div>
+  <div class="logo">🎯 Group<span>Pool</span> <span class="tooltip" data-tip="Mehrere Leute zahlen zusammen in einen Pool — wenn das Ziel erreicht ist, geht die Donation live an den Streamer." style="font-size:14px">ℹ️</span></div>
   <div style="display:flex;gap:8px;align-items:center;">
     <span id="refreshTimer" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn btn-sm btn-outline" onclick="reload()">↻ Aktualisieren</button>
@@ -243,7 +243,7 @@
       <textarea id="c-message" placeholder="Eure Nachricht an den Streamer…"></textarea>
     </div>
     <div class="field">
-      <label>Zielbetrag (€) <span class="tooltip" data-tip="Sobald das Ziel erreicht ist, wird automatisch eine Donation an den Streamer gesendet.">ℹ️</span></label>
+      <label>Zielbetrag (€) <span class="tooltip" data-tip="Sobald das Ziel erreicht ist, wird die Donation automatisch an den Streamer gesendet.">ℹ️</span></label>
       <input id="c-ziel" type="number" min="1" max="15" step="1" placeholder="10">
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Für Tests: 1–15 €</div>
       <p class="helper-text">Empfehlung: 2–5 € für Tests</p>
@@ -252,7 +252,7 @@
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;cursor:pointer">
         <input id="c-names-visible" type="checkbox" checked style="width:auto;cursor:pointer">
         Teilnehmernamen in der Donation-Nachricht anzeigen
-        <span class="tooltip" data-tip="Wenn aktiviert, werden die Teilnehmernamen in der Donation-Nachricht angezeigt.">ℹ️</span>
+        <span class="tooltip" data-tip="Wenn aktiviert: Namen der Teilnehmer erscheinen in der Donation-Nachricht. Deaktiviert: Anonym als 'GroupPool Community'.">ℹ️</span>
       </label>
     </div>
     <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
