@@ -24,8 +24,25 @@ function shot(name) { return `${SHOT_DIR}/${name}`; }
 const BOT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 // Optional residential proxy (e.g. IPRoyal). Format: http://user:pass@host:port
-// Playwright has built-in proxy support — no extra npm package needed.
+// Use chromium --proxy-server arg so Chromium handles CONNECT tunneling natively;
+// credentials are passed via httpCredentials on the context to answer 407 challenges.
 const PROXY_URL = process.env.PROXY_URL || null;
+let _proxyServer = null;   // http://host:port
+let _proxyCreds  = null;   // { username, password }
+if (PROXY_URL) {
+  try {
+    const u = new URL(PROXY_URL);
+    _proxyServer = `${u.protocol}//${u.host}`;
+    if (u.username) {
+      _proxyCreds = {
+        username: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+      };
+    }
+  } catch (e) {
+    console.error('[BOT] PROXY_URL ungültig:', e.message);
+  }
+}
 
 // Kartendaten aus .env, Fallback auf Stripe-Testkarte
 const CARD = {
@@ -722,12 +739,14 @@ async function runBotDonation(streamer, amount, message, groupName, donationUrl,
   console.log(`[BOT] Plattform: ${platform}`);
 
   const launchOpts = { headless: true };
-  if (PROXY_URL) {
-    launchOpts.proxy = { server: PROXY_URL };
-    console.log('[BOT] Proxy aktiv:', PROXY_URL.replace(/:([^:@]+)@/, ':***@'));
+  if (_proxyServer) {
+    launchOpts.args = [`--proxy-server=${_proxyServer}`];
+    console.log('[BOT] Proxy aktiv (chromium args):', _proxyServer);
   }
   const browser = await chromium.launch(launchOpts);
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, userAgent: BOT_UA });
+  const ctxOpts = { viewport: { width: 1280, height: 900 }, userAgent: BOT_UA };
+  if (_proxyCreds) ctxOpts.httpCredentials = _proxyCreds;
+  const context = await browser.newContext(ctxOpts);
   const page    = await context.newPage();
 
   try {
