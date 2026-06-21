@@ -88,6 +88,110 @@ async function solveCaptchaWith2captcha(page) {
   return result.data;
 }
 
+// ── PayPal slider CAPTCHA solver ─────────────────────────────────────────────
+// Drags the >> button from left to right with a human-like curved path.
+// Returns true if the slider appears to be accepted, false after 3 failed attempts.
+
+async function solvePayPalSlider(page) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    console.log(`[CAPTCHA] Slider-Versuch ${attempt}/3`);
+
+    // Locate the slider button (the >> arrow) and the track it slides on
+    const sliderBtn = page.locator('button svg, button[class*="slider"], button[aria-label*="slider"], button').first();
+    const track = page.locator('div[class*="slider"], [role="slider"], input[type="range"]').first();
+
+    // Get bounding boxes
+    const btnBox = await sliderBtn.boundingBox().catch(() => null);
+    if (!btnBox) {
+      // Fallback: find by visual position — the >> button is a small blue square
+      const allBtns = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('button')).map(b => {
+          const r = b.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height, text: b.innerText?.trim() };
+        })
+      );
+      console.log(`[CAPTCHA] Buttons auf Seite: ${JSON.stringify(allBtns)}`);
+    }
+
+    // Try to get slider geometry from the page itself
+    const sliderGeom = await page.evaluate(() => {
+      // Look for the slider track container
+      const track = document.querySelector('[class*="track"], [class*="slider-track"], [role="slider"]')
+        || document.querySelector('div > button'); // fallback
+      const btn = document.querySelector('button'); // first button = slider arrow
+      if (!btn) return null;
+      const br = btn.getBoundingClientRect();
+      // Track width: find parent container
+      let parent = btn.parentElement;
+      for (let i = 0; i < 5 && parent; i++) {
+        const pr = parent.getBoundingClientRect();
+        if (pr.width > 100) {
+          return { btnX: br.x + br.width / 2, btnY: br.y + br.height / 2, trackRight: pr.x + pr.width - 10, btnW: br.width };
+        }
+        parent = parent.parentElement;
+      }
+      return { btnX: br.x + br.width / 2, btnY: br.y + br.height / 2, trackRight: br.x + 250, btnW: br.width };
+    }).catch(() => null);
+
+    if (!sliderGeom) {
+      console.log(`[CAPTCHA] Slider-Geometrie nicht gefunden`);
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    const { btnX, btnY, trackRight } = sliderGeom;
+    const distance = trackRight - btnX;
+    console.log(`[CAPTCHA] Slider: start=(${Math.round(btnX)},${Math.round(btnY)}) ziel=(${Math.round(trackRight)},${Math.round(btnY)}) distanz=${Math.round(distance)}px`);
+
+    // Move to slider button first
+    await page.mouse.move(btnX, btnY);
+    await page.waitForTimeout(80 + Math.random() * 120);
+    await page.mouse.down();
+    await page.waitForTimeout(60 + Math.random() * 80);
+
+    // Drag with curved path: ease-in at start, max speed in middle, ease-out at end
+    // Add small random vertical jitter to simulate human hand
+    const steps = 35 + Math.floor(Math.random() * 15);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps; // 0..1
+      // Ease-in-out cubic: slow start, fast middle, slow end
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const x = btnX + distance * eased;
+      // Sinusoidal vertical drift (amplitude decreases toward end) + micro-jitter
+      const yDrift = Math.sin(t * Math.PI) * (2 + Math.random() * 1.5) * (1 - t * 0.7);
+      const yJitter = (Math.random() - 0.5) * 0.8;
+      const y = btnY + yDrift + yJitter;
+
+      // Variable delay: faster in the middle, slower at edges
+      const speedFactor = 0.3 + 0.7 * Math.sin(t * Math.PI); // 0.3..1.0
+      const delay = (8 + Math.random() * 6) / speedFactor;
+      await page.mouse.move(x, y);
+      await page.waitForTimeout(delay);
+    }
+
+    // Hold at end briefly like a human would
+    await page.waitForTimeout(80 + Math.random() * 120);
+    await page.mouse.up();
+
+    // Wait for PayPal to validate (up to 4s)
+    await page.waitForTimeout(2000 + Math.random() * 2000);
+
+    // Check if slider was accepted: look for the next step content (email input or card options)
+    const stillSlider = await page.locator('text="Confirm you\'re human", text="Move the slider"').first()
+      .isVisible({ timeout: 2_000 }).catch(() => false);
+    if (!stillSlider) {
+      console.log(`[CAPTCHA] Slider akzeptiert nach Versuch ${attempt} ✓`);
+      return true;
+    }
+
+    console.log(`[CAPTCHA] Slider nicht akzeptiert — warte vor nächstem Versuch...`);
+    await page.waitForTimeout(1500 + attempt * 500);
+  }
+
+  console.log('[CAPTCHA] Slider nach 3 Versuchen nicht gelöst — eskaliere');
+  return false;
+}
+
 async function checkCaptcha(page) {
   const url = page.url();
 
@@ -101,8 +205,10 @@ async function checkCaptcha(page) {
     const sliderVisible = await page.locator('text="Confirm you\'re human", text="Move the slider"').first()
       .isVisible({ timeout: 1_000 }).catch(() => false);
     if (sliderVisible) {
-      console.log(`[CAPTCHA] PayPal Slider-CAPTCHA erkannt auf ${url}`);
-      throw new Error('CAPTCHA_REQUIRED');
+      console.log(`[CAPTCHA] PayPal Slider-CAPTCHA erkannt — versuche Drag-Lösung...`);
+      const solved = await solvePayPalSlider(page);
+      if (!solved) throw new Error('CAPTCHA_REQUIRED');
+      console.log('[CAPTCHA] Slider gelöst ✓ — fahre fort');
     }
   } catch (e) { if (e.message === 'CAPTCHA_REQUIRED') throw e; }
 
