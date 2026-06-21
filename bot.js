@@ -119,13 +119,13 @@ async function solvePayPalSlider(ctx) {
       return { btnX: br.x + br.width / 2, btnY: br.y + br.height / 2, trackRight: br.x + 250, btnW: br.width };
     }).catch(() => null);
 
-    if (!sliderGeom) {
-      console.log(`[CAPTCHA] Slider-Geometrie nicht gefunden`);
-      await rootPage.waitForTimeout(1000);
-      continue;
-    }
+    // If DOM not accessible (cross-origin iframe), fall back to fixed coords.
+    // Derived from PayPal slider screenshot in 1280×900 viewport:
+    // button center ≈ (504, 288), track right edge ≈ (780, 288).
+    const geom = sliderGeom || { btnX: 504, btnY: 288, trackRight: 780 };
+    if (!sliderGeom) console.log('[CAPTCHA] Geometrie nicht gefunden — verwende Fallback-Koordinaten');
 
-    const { btnX, btnY, trackRight } = sliderGeom;
+    const { btnX, btnY, trackRight } = geom;
     const distance = trackRight - btnX;
     console.log(`[CAPTCHA] Slider: start=(${Math.round(btnX)},${Math.round(btnY)}) ziel=(${Math.round(trackRight)},${Math.round(btnY)}) distanz=${Math.round(distance)}px`);
 
