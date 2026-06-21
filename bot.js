@@ -435,7 +435,25 @@ async function handlePayPalCardPayment(context, ppCtx, label) {
     await checkCaptcha(cardPopup);
     formCtx = cardPopup;
   } else {
-    await ppCtx.waitForTimeout(4000);
+    await ppCtx.waitForTimeout(3000);
+    await checkCaptcha(ppCtx);
+
+    // PayPal "Check out as a guest" step: email input → Continue to Payment.
+    // This appears when PayPal doesn't recognize the browser as having a session.
+    const guestEmailInput = ppCtx.locator('input[type="email"], input[id="email"], input[placeholder*="Email"], input[placeholder*="email"]').first();
+    if (await guestEmailInput.isVisible({ timeout: 4_000 }).catch(() => false)) {
+      console.log('[BOT] PayPal Guest-Checkout: E-Mail eingeben...');
+      await guestEmailInput.fill(process.env.CARD_EMAIL || 'pool@grouppool.de');
+      const continueBtn = ppCtx.locator('button:has-text("Continue to Payment"), button:has-text("Weiter zur Zahlung"), button:has-text("Continue")').first();
+      if (await continueBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await continueBtn.click();
+        console.log('[BOT] Guest-Checkout: "Continue to Payment" geklickt');
+        await ppCtx.waitForTimeout(4000);
+        await checkCaptcha(ppCtx);
+      }
+    }
+
+    await ppCtx.screenshot({ path: shot(`${label}-after-guest.png`), fullPage: true }).catch(() => {});
     console.log('[BOT] Suche Karten-Formular in Frames...');
     formCtx = ppCtx;
     for (const frame of [ppCtx, ...ppCtx.frames()]) {
