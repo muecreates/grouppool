@@ -507,30 +507,33 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   console.log('[BOT] Suche PayPal-Button im rechten Panel...');
   await page.waitForTimeout(5000); // PayPal Smart Buttons brauchen Zeit zum Laden
 
-  // Diagnose: alle Frames und deren Buttons loggen
-  const allFrames = page.frames();
-  console.log(`[BOT] Frames gesamt: ${allFrames.length}`);
-  for (const f of allFrames) {
-    const fUrl = f.url();
-    if (fUrl && fUrl !== 'about:blank') {
-      try {
-        const btns = await f.$$eval('button, [role="button"], a', els =>
-          els.slice(0, 5).map(e => ({ tag: e.tagName, text: e.innerText?.slice(0, 30), cls: e.className?.slice(0, 40) }))
-        );
-        if (btns.length) console.log(`[BOT] Frame ${fUrl.slice(0, 80)}: ${JSON.stringify(btns)}`);
-      } catch {}
-    }
-  }
+  // Diagnose: alle Buttons + iframes im DOM loggen
+  try {
+    const domInfo = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button, [role="button"]'))
+        .map(e => ({
+          tag: e.tagName, text: e.innerText?.slice(0, 40).trim(),
+          aria: e.getAttribute('aria-label')?.slice(0, 40),
+          title: e.getAttribute('title')?.slice(0, 40),
+          dataFund: e.getAttribute('data-funding-source'),
+          cls: e.className?.slice(0, 50),
+        }));
+      const iframes = Array.from(document.querySelectorAll('iframe'))
+        .map(f => ({ src: f.src?.slice(0, 100), id: f.id, cls: f.className?.slice(0, 40) }));
+      return { btns, iframes };
+    });
+    console.log(`[BOT] DOM buttons (${domInfo.btns.length}): ${JSON.stringify(domInfo.btns)}`);
+    console.log(`[BOT] DOM iframes (${domInfo.iframes.length}): ${JSON.stringify(domInfo.iframes)}`);
+  } catch (e) { console.log('[BOT] DOM-Diagnose Fehler:', e.message); }
 
   let paypalBtn = null;
   const PP_BTN_SELECTORS = [
     '[data-funding-source="paypal"]',
-    '.paypal-button[data-funding-source="paypal"]',
     'div[data-funding-source="paypal"]',
-    'button.paypal-button',
     '[class*="paypal-button"]',
-    'button:has-text("PayPal")',
     '[aria-label*="PayPal"]',
+    '[title*="PayPal"]',
+    'button:has-text("PayPal")',
   ];
   for (const frame of [page, ...page.frames()]) {
     for (const sel of PP_BTN_SELECTORS) {
@@ -538,7 +541,7 @@ async function flowStreamElements(page, context, { amount, message, groupName })
         const loc = frame.locator(sel).first();
         if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
           paypalBtn = loc;
-          console.log(`[BOT] SE PayPal-Button gefunden: "${sel}" in Frame: ${frame.url?.().slice(0, 80) ?? 'main'}`);
+          console.log(`[BOT] SE PayPal-Button: "${sel}" in Frame ${frame.url?.().slice(0, 80) ?? 'main'}`);
           break;
         }
       } catch {}
