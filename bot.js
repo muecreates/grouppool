@@ -243,9 +243,20 @@ async function fillPayPalCardFields(cardFieldsFrame) {
   await typeIn('line1',                 CARD.address,                   'address');
   await typeIn('city',                  CARD.city,                      'city');
   await typeIn('postcode',              CARD.plz,                       'postcode');
-  // State/region — required by PayPal when country is US; use env var or skip for DE
+  // State — PayPal renders this as a <select> dropdown, not a text input
   const stateVal = process.env.CARD_STATE || '';
-  if (stateVal) await typeIn('state', stateVal, 'state');
+  if (stateVal) {
+    const stateSel = cardFieldsFrame.locator('select[name="state"], select[id*="state"], select[id*="region"]').first();
+    if (await stateSel.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await stateSel.selectOption({ value: stateVal }).catch(() =>
+        stateSel.selectOption({ label: stateVal }).catch(() => {})
+      );
+      console.log(`[BOT] state (select) → "${stateVal}" ✓`);
+    } else {
+      // Fallback: try as text input (some locales render it differently)
+      await typeIn('state', stateVal, 'state');
+    }
+  }
   await typeIn('phone',                 phone,                          'phone');
   await typeIn('email',                 CARD.email,                     'email');
 
