@@ -503,23 +503,47 @@ async function flowStreamElements(page, context, { amount, message, groupName })
   }
 
   // ── PayPal-Button im rechten Panel anklicken ──────────────────────────────
-  // SE zeigt den PayPal-Button direkt im rechten Panel (kein "Send Tip" nötig).
-  // "Send Tip" führt zu einem Login-Modal — stattdessen direkt PayPal klicken.
+  // SE zeigt den PayPal-Button direkt im rechten Panel via PayPal SDK iframe.
   console.log('[BOT] Suche PayPal-Button im rechten Panel...');
-  await page.waitForTimeout(2000); // PayPal Smart Buttons brauchen Zeit zum Laden
+  await page.waitForTimeout(5000); // PayPal Smart Buttons brauchen Zeit zum Laden
+
+  // Diagnose: alle Frames und deren Buttons loggen
+  const allFrames = page.frames();
+  console.log(`[BOT] Frames gesamt: ${allFrames.length}`);
+  for (const f of allFrames) {
+    const fUrl = f.url();
+    if (fUrl && fUrl !== 'about:blank') {
+      try {
+        const btns = await f.$$eval('button, [role="button"], a', els =>
+          els.slice(0, 5).map(e => ({ tag: e.tagName, text: e.innerText?.slice(0, 30), cls: e.className?.slice(0, 40) }))
+        );
+        if (btns.length) console.log(`[BOT] Frame ${fUrl.slice(0, 80)}: ${JSON.stringify(btns)}`);
+      } catch {}
+    }
+  }
 
   let paypalBtn = null;
+  const PP_BTN_SELECTORS = [
+    '[data-funding-source="paypal"]',
+    '.paypal-button[data-funding-source="paypal"]',
+    'div[data-funding-source="paypal"]',
+    'button.paypal-button',
+    '[class*="paypal-button"]',
+    'button:has-text("PayPal")',
+    '[aria-label*="PayPal"]',
+  ];
   for (const frame of [page, ...page.frames()]) {
-    try {
-      const loc = frame.locator(
-        '[data-funding-source="paypal"], .paypal-button[data-funding-source="paypal"], button:has-text("PayPal")'
-      ).first();
-      if (await loc.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        paypalBtn = loc;
-        console.log('[BOT] SE PayPal-Button gefunden in Frame:', frame.url?.() ?? 'main');
-        break;
-      }
-    } catch {}
+    for (const sel of PP_BTN_SELECTORS) {
+      try {
+        const loc = frame.locator(sel).first();
+        if (await loc.isVisible({ timeout: 1_000 }).catch(() => false)) {
+          paypalBtn = loc;
+          console.log(`[BOT] SE PayPal-Button gefunden: "${sel}" in Frame: ${frame.url?.().slice(0, 80) ?? 'main'}`);
+          break;
+        }
+      } catch {}
+    }
+    if (paypalBtn) break;
   }
 
   if (!paypalBtn) {
